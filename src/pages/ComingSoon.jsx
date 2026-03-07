@@ -9,7 +9,6 @@ const PAGE_NAMES = {
 export default function ComingSoon() {
   const { pathname } = useLocation();
   const name = PAGE_NAMES[pathname] || "This page";
-
   return (
     <div className="flex flex-1 items-center justify-center">
       <p className="font-sans text-[15px] text-text-secondary">

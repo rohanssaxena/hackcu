@@ -1,0 +1,550 @@
+import { useState, useEffect, useCallback } from "react";
+import {
+  Layers, ListChecks, Sparkles, Loader2, FileText,
+  Check, X, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle,
+} from "lucide-react";
+import { getFiles } from "../services/canvasAPI";
+import { useCourse } from "../context/CourseContext";
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function getAnthropicKey() { return import.meta.env.VITE_ANTHROPIC_API_KEY; }
+
+function storageKey(courseId) { return `micro_review_${courseId}`; }
+
+function loadSaved(courseId) {
+  try { return JSON.parse(localStorage.getItem(storageKey(courseId)) || "null"); }
+  catch { return null; }
+}
+function persist(courseId, data) {
+  localStorage.setItem(storageKey(courseId), JSON.stringify(data));
+}
+function clearSaved(courseId) {
+  localStorage.removeItem(storageKey(courseId));
+}
+
+async function pdfToBase64(canvasFile, token) {
+  const sep = canvasFile.url.includes("?") ? "&" : "?";
+  const url  = `${canvasFile.url}${sep}access_token=${token}`;
+  const res  = await fetch(url);
+  if (!res.ok) throw new Error(`PDF download failed: HTTP ${res.status}`);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload  = () => resolve(r.result.split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function extractFromFile(file, token) {
+  const key    = getAnthropicKey();
+  if (!key) throw new Error("VITE_ANTHROPIC_API_KEY not set — restart dev server after adding to .env");
+  const base64 = await pdfToBase64(file, token);
+  const res = await fetch("/anthropic-api/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4000,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+          { type: "text", text: `Extract study material from this lecture PDF.
+
+Return ONLY a raw JSON object, no markdown fences:
+{
+  "terms": [
+    { "term": "...", "definition": "1-3 sentence explanation", "category": "definition"|"person"|"event"|"equation"|"concept" }
+  ],
+  "questions": [
+    { "question": "...", "answer": "explanation of correct answer", "options": ["plain string","plain string","plain string","plain string"], "correct": 0, "difficulty": "easy"|"medium"|"hard" }
+  ]
+}
+
+Rules: min 10 terms, min 6 questions. options are plain strings (no A/B/C prefix). correct is 0-based index.` },
+        ],
+      }],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Anthropic ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const raw  = data.content?.[0]?.text ?? "{}";
+  try { return JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+  catch { throw new Error("Claude returned invalid JSON"); }
+}
+
+// ── Supabase progress writes ───────────────────────────────────────────────
+async function recordFlashcard(supabase, courseId, term, known) {
+  try {
+    const userId = localStorage.getItem("micro_user_email") || "anonymous";
+    await supabase.from("flashcard_results").insert({
+      user_id: userId, course_id: String(courseId), term, known,
+    });
+  } catch { /* non-fatal */ }
+}
+
+async function recordQuizAttempt(supabase, courseId, score, total) {
+  try {
+    const userId = localStorage.getItem("micro_user_email") || "anonymous";
+    await supabase.from("quiz_results").insert({
+      user_id: userId, course_id: String(courseId), score, total,
+    });
+  } catch { /* non-fatal */ }
+}
+
+// ── Category pill ──────────────────────────────────────────────────────────
+const CAT = {
+  definition: "text-accent-blue  border-accent-blue/30  bg-accent-blue/10",
+  person:     "text-purple-400   border-purple-400/30   bg-purple-400/10",
+  event:      "text-yellow-400   border-yellow-400/30   bg-yellow-400/10",
+  equation:   "text-accent-green border-accent-green/30 bg-accent-green/10",
+  concept:    "text-orange-400   border-orange-400/30   bg-orange-400/10",
+};
+function CategoryPill({ cat }) {
+  return (
+    <span className={`rounded-full border px-2 py-0.5 font-sans text-[10px] font-semibold uppercase tracking-wider ${CAT[cat] ?? CAT.concept}`}>
+      {cat}
+    </span>
+  );
+}
+
+// ── Flashcards ─────────────────────────────────────────────────────────────
+function Flashcards({ terms, courseId, supabase }) {
+  const [idx,     setIdx]     = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [known,   setKnown]   = useState(new Set());
+  const [unknown, setUnknown] = useState(new Set());
+
+  const card     = terms[idx];
+  const total    = terms.length;
+  const reviewed = known.size + unknown.size;
+
+  function go(delta) {
+    setFlipped(false);
+    setTimeout(() => setIdx(i => Math.max(0, Math.min(total - 1, i + delta))), 120);
+  }
+  function markKnown() {
+    recordFlashcard(supabase, courseId, card.term, true);
+    setKnown(s => new Set([...s, idx]));
+    go(+1);
+  }
+  function markUnknown() {
+    recordFlashcard(supabase, courseId, card.term, false);
+    setUnknown(s => new Set([...s, idx]));
+    go(+1);
+  }
+  function reset() { setIdx(0); setFlipped(false); setKnown(new Set()); setUnknown(new Set()); }
+
+  return (
+    <div className="flex flex-col gap-4 max-w-2xl">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] text-text-secondary">{idx + 1} / {total}</span>
+        <div className="flex items-center gap-4">
+          <span className="font-sans text-[11px] text-accent-green">{known.size} known</span>
+          <span className="font-sans text-[11px] text-red-400">{unknown.size} learning</span>
+          <button onClick={reset} className="cursor-pointer text-text-secondary hover:text-text-primary transition-colors"><RotateCcw className="size-3.5" /></button>
+        </div>
+      </div>
+
+      <div className="h-1 w-full overflow-hidden rounded-full bg-bg-elevated">
+        <div className="h-full rounded-full bg-accent-blue transition-all duration-500" style={{ width: `${(reviewed / total) * 100}%` }} />
+      </div>
+
+      <div onClick={() => setFlipped(v => !v)}
+        className="relative flex min-h-[240px] cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border border-border-default bg-bg-elevated p-10 select-none transition-all hover:border-accent-blue/30 hover:bg-[#252528]">
+        <CategoryPill cat={card.category} />
+        {!flipped ? (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <p className="font-sans text-[24px] font-semibold text-text-primary">{card.term}</p>
+            <p className="font-sans text-[11px] text-text-faint">click to flip</p>
+          </div>
+        ) : (
+          <p className="font-sans text-[15px] leading-[24px] text-text-primary text-center max-w-lg">{card.definition}</p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <button onClick={() => go(-1)} disabled={idx === 0}
+          className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors disabled:opacity-30">
+          <ChevronLeft className="size-3.5" /> Prev
+        </button>
+        {flipped && (
+          <div className="flex items-center gap-2">
+            <button onClick={markUnknown}
+              className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 font-sans text-[12px] text-red-400 hover:bg-red-400/20 transition-colors">
+              <X className="size-3.5" /> Still learning
+            </button>
+            <button onClick={markKnown}
+              className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-accent-green/30 bg-accent-green/10 px-4 py-2 font-sans text-[12px] text-accent-green hover:bg-accent-green/20 transition-colors">
+              <Check className="size-3.5" /> Got it
+            </button>
+          </div>
+        )}
+        <button onClick={() => go(+1)} disabled={idx === total - 1}
+          className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors disabled:opacity-30">
+          Next <ChevronRight className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Quiz ───────────────────────────────────────────────────────────────────
+const DIFF = {
+  easy:   "border-accent-green/30 text-accent-green",
+  medium: "border-yellow-400/30  text-yellow-400",
+  hard:   "border-red-400/30     text-red-400",
+};
+
+function Quiz({ questions, courseId, supabase }) {
+  const [idx,      setIdx]      = useState(0);
+  const [selected, setSelected] = useState(null);
+  const [log,      setLog]      = useState([]);
+  const [done,     setDone]     = useState(false);
+  const [saved,    setSaved]    = useState(false);
+
+  const q     = questions[idx];
+  const total = questions.length;
+
+  function pick(i) {
+    if (selected !== null) return;
+    setSelected(i);
+    setLog(l => [...l, { correct: i === q.correct }]);
+  }
+  function next() {
+    if (idx < total - 1) { setIdx(i => i + 1); setSelected(null); }
+    else setDone(true);
+  }
+  function reset() { setIdx(0); setSelected(null); setLog([]); setDone(false); setSaved(false); }
+
+  // Save score to Supabase when quiz completes
+  useEffect(() => {
+    if (done && !saved) {
+      const score = log.filter(l => l.correct).length;
+      recordQuizAttempt(supabase, courseId, score, total);
+      setSaved(true);
+    }
+  }, [done, saved, log, total, supabase, courseId]);
+
+  if (done) {
+    const score = log.filter(l => l.correct).length;
+    const pct   = Math.round((score / total) * 100);
+    const color = pct >= 80 ? "text-accent-green" : pct >= 60 ? "text-yellow-400" : "text-red-400";
+    return (
+      <div className="flex flex-col items-center gap-6 py-8 max-w-2xl">
+        <div className="flex flex-col items-center gap-1">
+          <span className={`font-sans text-[56px] font-bold leading-none ${color}`}>{pct}%</span>
+          <p className="font-sans text-[13px] text-text-secondary">{score} of {total} correct</p>
+        </div>
+        <div className="flex w-full flex-col gap-2">
+          {questions.map((q, i) => {
+            const ok = log[i]?.correct;
+            return (
+              <div key={i} className={`flex items-start gap-3 rounded-xl border p-3 ${ok ? "border-accent-green/20 bg-accent-green/5" : "border-red-400/20 bg-red-400/5"}`}>
+                {ok ? <Check className="size-4 shrink-0 text-accent-green mt-0.5" /> : <X className="size-4 shrink-0 text-red-400 mt-0.5" />}
+                <div className="flex flex-col gap-0.5">
+                  <p className="font-sans text-[12px] text-text-primary">{q.question}</p>
+                  {!ok && <p className="font-sans text-[11px] text-accent-green">✓ {q.options[q.correct]}</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button onClick={reset}
+          className="flex items-center gap-2 cursor-pointer rounded-xl bg-accent-blue px-6 py-2.5 font-sans text-[13px] font-medium text-white hover:brightness-110 transition-all">
+          <RotateCcw className="size-3.5" /> Retake
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5 max-w-2xl">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] text-text-secondary">Question {idx + 1} / {total}</span>
+        <span className={`rounded-full border px-2 py-0.5 font-sans text-[10px] ${DIFF[q.difficulty] ?? DIFF.medium}`}>{q.difficulty}</span>
+      </div>
+      <div className="h-1 w-full overflow-hidden rounded-full bg-bg-elevated">
+        <div className="h-full rounded-full bg-accent-blue transition-all duration-300" style={{ width: `${(idx / total) * 100}%` }} />
+      </div>
+      <p className="font-sans text-[17px] font-medium leading-[26px] text-text-primary">{q.question}</p>
+      <div className="flex flex-col gap-2">
+        {q.options.map((opt, i) => {
+          let cls = "border-border-default bg-bg-elevated hover:border-accent-blue/40 hover:bg-[#252528]";
+          if (selected !== null) {
+            if      (i === q.correct)                   cls = "border-accent-green/50 bg-accent-green/10";
+            else if (i === selected && i !== q.correct)  cls = "border-red-400/50 bg-red-400/10";
+            else                                         cls = "border-border-default bg-bg-elevated opacity-40";
+          }
+          return (
+            <button key={i} onClick={() => pick(i)}
+              className={`flex items-center gap-3 rounded-xl border p-4 text-left cursor-pointer transition-all ${cls}`}>
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-default font-mono text-[11px] text-text-secondary">
+                {String.fromCharCode(65 + i)}
+              </span>
+              <span className="font-sans text-[13px] text-text-primary flex-1">{opt}</span>
+              {selected !== null && i === q.correct && <Check className="ml-auto size-4 shrink-0 text-accent-green" />}
+              {selected !== null && i === selected && i !== q.correct && <X className="ml-auto size-4 shrink-0 text-red-400" />}
+            </button>
+          );
+        })}
+      </div>
+      {selected !== null && (
+        <div className="flex flex-col gap-3">
+          <div className={`rounded-xl border p-4 ${selected === q.correct ? "border-accent-green/20 bg-accent-green/5" : "border-red-400/20 bg-red-400/5"}`}>
+            <p className="font-sans text-[12px] leading-[18px] text-text-secondary">
+              <span className={`font-semibold ${selected === q.correct ? "text-accent-green" : "text-red-400"}`}>
+                {selected === q.correct ? "Correct! " : "Not quite. "}
+              </span>
+              {q.answer}
+            </p>
+          </div>
+          <button onClick={next}
+            className="flex items-center justify-center gap-2 cursor-pointer rounded-xl bg-accent-blue px-4 py-2.5 font-sans text-[13px] font-medium text-white hover:brightness-110 transition-all">
+            {idx < total - 1 ? <>Next question <ChevronRight className="size-3.5" /></> : "See results"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── File selector ──────────────────────────────────────────────────────────
+function FileSelector({ files, selected, onToggle }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {files.map(f => {
+        const on = selected.has(f.id);
+        const mb = f.size ? `${(f.size / 1048576).toFixed(1)} MB` : "";
+        return (
+          <button key={f.id} onClick={() => onToggle(f.id)}
+            className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${on ? "border-accent-blue/40 bg-[#1e2a3a]" : "border-border-default bg-bg-elevated hover:bg-[#252528]"}`}>
+            <div className={`flex size-5 shrink-0 items-center justify-center rounded border transition-all ${on ? "border-accent-blue bg-accent-blue" : "border-border-default"}`}>
+              {on && <Check className="size-3 text-white" strokeWidth={3} />}
+            </div>
+            <FileText className="size-4 shrink-0 text-red-400" />
+            <span className="font-sans text-[12px] text-text-primary truncate flex-1">{f.display_name || f.filename}</span>
+            <span className="font-mono text-[10px] text-text-faint shrink-0">{mb}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Regenerate confirm dialog ──────────────────────────────────────────────
+function RegenerateWarning({ onConfirm, onCancel }) {
+  return (
+    <div className="flex flex-col gap-4 max-w-md rounded-2xl border border-yellow-400/30 bg-yellow-400/5 p-5">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="size-5 shrink-0 text-yellow-400 mt-0.5" />
+        <div className="flex flex-col gap-1">
+          <p className="font-sans text-[13px] font-medium text-text-primary">Regenerate flashcards?</p>
+          <p className="font-sans text-[12px] text-text-secondary leading-[18px]">
+            This will replace your existing {" "}set and cost API credits (a few cents). Your progress history is preserved.
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={onConfirm}
+          className="flex items-center gap-1.5 cursor-pointer rounded-lg bg-accent-blue px-4 py-2 font-sans text-[12px] font-medium text-white hover:brightness-110 transition-all">
+          <Sparkles className="size-3.5" /> Yes, regenerate
+        </button>
+        <button onClick={onCancel}
+          className="cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────
+export default function Review() {
+  const { activeCourse, shortCode, supabase } = useCourse();
+  const token = localStorage.getItem("micro_canvas_token") || import.meta.env.VITE_CANVAS_TOKEN;
+
+  const courseId = activeCourse?.id;
+
+  const [files,        setFiles]        = useState([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [selected,     setSelected]     = useState(new Set());
+  const [generating,   setGenerating]   = useState(false);
+  const [progress,     setProgress]     = useState("");
+  const [data,         setData]         = useState(null);
+  const [mode,         setMode]         = useState("flashcards");
+  const [error,        setError]        = useState(null);
+  const [confirmRegen, setConfirmRegen] = useState(false);
+
+  // Load saved data + files whenever course changes
+  useEffect(() => {
+    if (!courseId) return;
+    setData(loadSaved(courseId));
+    setError(null);
+    setConfirmRegen(false);
+    setMode("flashcards");
+
+    setFilesLoading(true);
+    getFiles(courseId)
+      .then(all => {
+        const pdfs = all.filter(f =>
+          (f["content-type"] || "").includes("pdf") || (f.filename || "").endsWith(".pdf")
+        );
+        setFiles(pdfs);
+        setSelected(new Set(pdfs.slice(0, 3).map(f => f.id)));
+      })
+      .catch(() => setFiles([]))
+      .finally(() => setFilesLoading(false));
+  }, [courseId]);
+
+  function toggleFile(id) {
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  async function generate() {
+    const key = getAnthropicKey();
+    if (!key) { setError("Add VITE_ANTHROPIC_API_KEY to .env and restart dev server."); return; }
+    if (!selected.size) { setError("Select at least one file."); return; }
+
+    setGenerating(true);
+    setError(null);
+    setConfirmRegen(false);
+
+    const toProcess = files.filter(f => selected.has(f.id));
+    const allTerms = [], allQs = [];
+
+    try {
+      for (let i = 0; i < toProcess.length; i++) {
+        const f = toProcess[i];
+        setProgress(`Analyzing ${f.display_name || f.filename} (${i + 1}/${toProcess.length})…`);
+        try {
+          const extracted = await extractFromFile(f, token);
+          const src = f.display_name || f.filename;
+          (extracted.terms     || []).forEach(t => allTerms.push({ ...t, source: src }));
+          (extracted.questions || []).forEach(q => allQs.push({   ...q, source: src }));
+        } catch (e) { throw e; }
+      }
+      if (!allTerms.length) throw new Error("Nothing extracted — the PDFs may be image-only or locked.");
+      const result = { terms: allTerms, questions: allQs, generatedAt: Date.now() };
+      persist(courseId, result);
+      setData(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGenerating(false);
+      setProgress("");
+    }
+  }
+
+  function handleRegenClick() { setConfirmRegen(true); }
+  function handleClear() { clearSaved(courseId); setData(null); setConfirmRegen(false); }
+
+  if (!activeCourse) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="font-sans text-[14px] text-text-secondary">Select a course from the dropdown to get started.</p>
+      </div>
+    );
+  }
+
+  const courseName = activeCourse.name.includes(":")
+    ? activeCourse.name.split(":")[1].trim()
+    : activeCourse.name;
+
+  return (
+    <div className="flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-10">
+      <div className="mb-7 flex items-start justify-between">
+        <div>
+          <h1 className="font-sans text-4xl font-semibold text-text-primary">Review</h1>
+          <p className="mt-1 font-sans text-[13px] text-text-secondary">
+            {shortCode(activeCourse)} — {courseName}
+          </p>
+        </div>
+        {data && !confirmRegen && (
+          <div className="flex items-center gap-3 pt-2">
+            <span className="font-mono text-[11px] text-text-faint">
+              {data.terms?.length} terms · {data.questions?.length} questions
+            </span>
+            <button onClick={handleRegenClick}
+              className="font-sans text-[11px] text-text-secondary hover:text-yellow-400 cursor-pointer transition-colors">
+              Regenerate
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Regenerate warning */}
+      {confirmRegen && (
+        <div className="mb-6">
+          <RegenerateWarning onConfirm={handleClear} onCancel={() => setConfirmRegen(false)} />
+        </div>
+      )}
+
+      {/* Setup */}
+      {!data && (
+        <div className="flex flex-col gap-5 max-w-2xl">
+          <div className="rounded-2xl border border-border-default bg-bg-sidebar p-5 flex flex-col gap-4">
+            <p className="font-sans text-[13px] font-medium text-text-primary">Choose lecture PDFs to generate from</p>
+            {filesLoading && (
+              <div className="flex items-center gap-2">
+                <Loader2 className="size-3.5 animate-spin text-text-secondary" />
+                <span className="font-sans text-[12px] text-text-secondary">Loading files…</span>
+              </div>
+            )}
+            {!filesLoading && !files.length && (
+              <p className="font-sans text-[12px] text-text-secondary">
+                No PDFs found for {shortCode(activeCourse)}. This course may not have published files.
+              </p>
+            )}
+            {!filesLoading && !!files.length && (
+              <FileSelector files={files} selected={selected} onToggle={toggleFile} />
+            )}
+          </div>
+          {error && <p className="font-sans text-[12px] text-red-400 leading-[18px]">{error}</p>}
+          <button onClick={generate}
+            disabled={generating || !selected.size || filesLoading}
+            className="flex w-fit items-center gap-2 cursor-pointer rounded-xl bg-accent-blue px-6 py-3 font-sans text-[14px] font-medium text-white hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            {generating
+              ? <><Loader2 className="size-4 animate-spin" /><span className="ml-1">{progress || "Generating…"}</span></>
+              : <><Sparkles className="size-4" /> Generate Flashcards &amp; Quiz</>
+            }
+          </button>
+          {generating && <p className="font-sans text-[11px] text-text-faint">Takes 30–90 s per file. Keep this tab open.</p>}
+        </div>
+      )}
+
+      {/* Study */}
+      {data && !confirmRegen && (
+        <div className="flex flex-col gap-5">
+          <div className="flex items-center border-b border-border-default">
+            {[
+              { id: "flashcards", label: "Flashcards",    icon: Layers,     count: data.terms?.length },
+              { id: "quiz",       label: "Practice Quiz", icon: ListChecks, count: data.questions?.length },
+            ].map(({ id, label, icon: Icon, count }) => (
+              <button key={id} onClick={() => setMode(id)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 font-sans text-[12px] cursor-pointer transition-colors border-b-2 -mb-px ${mode === id ? "border-accent-blue text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"}`}>
+                <Icon className="size-3.5" />{label}
+                <span className="font-mono text-[10px] text-text-faint ml-1">({count})</span>
+              </button>
+            ))}
+          </div>
+          {mode === "flashcards" && data.terms?.length > 0 && (
+            <Flashcards terms={data.terms} courseId={courseId} supabase={supabase} />
+          )}
+          {mode === "quiz" && data.questions?.length > 0 && (
+            <Quiz questions={data.questions} courseId={courseId} supabase={supabase} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
