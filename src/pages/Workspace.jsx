@@ -7,7 +7,8 @@ import {
   Check, Loader2, ExternalLink, Upload, Lock,
 } from "lucide-react";
 import { resolvePathToNode } from "../data/fileSystem";
-import { getCourses, getFiles } from "../services/canvasAPI";
+import { getFiles } from "../services/canvasAPI";
+import { useCourse } from "../context/CourseContext";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -49,30 +50,6 @@ function CanvasFileTypeIcon({ type }) {
   if (type === "pptx") return <FileText className="size-4 text-orange-400" />;
   if (type === "docx") return <FileText className="size-4 text-blue-400" />;
   return <File className="size-4 text-text-secondary" />;
-}
-
-// Course date filter — same 6-month lookback rule
-function isCurrentTerm(c) {
-  const now = new Date();
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  const start = c.start_at || c.term?.start_at;
-  const end   = c.end_at   || c.term?.end_at;
-  if (!start && !end) return true;
-  const s = start ? new Date(start) : null;
-  const e = end   ? new Date(end)   : null;
-  if (s && s > now) return false;
-  if (e && e < now) return false;
-  if (s && s < sixMonthsAgo) return false;
-  return true;
-}
-
-const IGNORED_KEYWORDS = [
-  "academic integrity", "community equity",
-  "intra-university", "iut guide", "transfer guide",
-];
-function isNotJunk(c) {
-  return !IGNORED_KEYWORDS.some((kw) => c.name.toLowerCase().includes(kw));
 }
 
 // Ingestion status persisted in localStorage
@@ -341,15 +318,10 @@ function CanvasCourseFolder({ course }) {
 // ── Canvas section ─────────────────────────────────────────────────────────
 
 function CanvasSection() {
-  const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { courses, activeCourse, loading } = useCourse();
 
-  useEffect(() => {
-    getCourses()
-      .then((all) => setCourses(all.filter(isCurrentTerm).filter(isNotJunk)))
-      .catch(() => setCourses([]))
-      .finally(() => setLoading(false));
-  }, []);
+  // Show only the active course if one is selected, otherwise all courses
+  const displayCourses = activeCourse ? [activeCourse] : courses;
 
   return (
     <div className="flex flex-col">
@@ -361,7 +333,7 @@ function CanvasSection() {
           </span>
           {!loading && (
             <span className="font-mono text-[10px] text-text-faint">
-              {courses.length} courses
+              {displayCourses.length} course{displayCourses.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -377,7 +349,7 @@ function CanvasSection() {
         </div>
       )}
 
-      {!loading && courses.map((c) => (
+      {!loading && displayCourses.map((c) => (
         <CanvasCourseFolder key={c.id} course={c} />
       ))}
     </div>
