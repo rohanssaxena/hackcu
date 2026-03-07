@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Menlo", ui-monospace, monospace;
+
+  --color-bg-primary: #1e1e1e;
+  --color-bg-sidebar: #252526;
+  --color-bg-elevated: #2a2a2a;
+  --color-bg-hover: #393939;
+  --color-bg-chip: #383839;
+  --color-bg-active-tab: #233c40;
+
+  --color-border-default: #3e3e3e;
+  --color-border-subtle: #3a3a3a;
+
+  --color-text-primary: #cccccc;
+  --color-text-secondary: #858585;
+  --color-text-muted: #676767;
+  --color-text-faint: #646464;
+  --color-text-label: #565656;
+  --color-text-separator: #3e3e3e;
+  --color-text-tab: #969696;
+
+  --color-accent-blue: #2b7fff;
+  --color-accent-green: #05df72;
+  --color-accent-pill: #313131;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: local("Geist");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: local("Geist Mono");
+  font-display: swap;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Guided Learning Mode button */
+.guided-btn {
+  --btn-glow: rgba(43, 127, 255, 0.35);
+  border: 1px solid rgba(43, 127, 255, 0.3);
+}
+.guided-btn:hover {
+  --btn-glow: rgba(43, 127, 255, 0.55);
+  border-color: rgba(43, 127, 255, 0.5);
+  box-shadow: 0 0 20px var(--btn-glow), inset 0 0 12px rgba(43, 127, 255, 0.08);
+  transform: translateY(-1px);
+}
+.guided-btn-bg {
+  background: linear-gradient(135deg, #1a2a44 0%, #1e2a3a 50%, #1a2640 100%);
+}
+.guided-btn-shimmer {
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(43, 127, 255, 0.08) 40%,
+    rgba(139, 92, 246, 0.06) 50%,
+    rgba(43, 127, 255, 0.08) 60%,
+    transparent 80%
+  );
+  background-size: 250% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}

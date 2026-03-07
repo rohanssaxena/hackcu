@@ -1,0 +1,397 @@
+import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Folder,
+  FileText,
+  File,
+  ChevronRight,
+  ChevronDown,
+  List,
+  LayoutGrid,
+  ArrowUpDown,
+  Filter,
+  Plus,
+  Download,
+  FolderOpen,
+  ArrowUpRight,
+  Search,
+} from "lucide-react";
+import { resolvePathToNode } from "../data/fileSystem";
+
+function getFileIcon(item) {
+  if (item.type === "folder") return Folder;
+  if (item.type === "pdf") return FileText;
+  return File;
+}
+
+function formatTotalSize(items) {
+  const files = items.filter((i) => i.type !== "folder");
+  const folders = items.filter((i) => i.type === "folder");
+  return `${files.length} file${files.length !== 1 ? "s" : ""}, ${folders.length} folder${folders.length !== 1 ? "s" : ""}`;
+}
+
+export default function Workspace() {
+  const navigate = useNavigate();
+  const [path, setPath] = useState(["College", "Y1S2", "APPM 1360"]);
+  const [viewMode, setViewMode] = useState("list");
+  const [expandedFolders, setExpandedFolders] = useState(new Set());
+  const [sortField, setSortField] = useState("name");
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const currentNode = useMemo(() => resolvePathToNode(path), [path]);
+  const items = currentNode.children || [];
+
+  const sortedItems = useMemo(() => {
+    const folders = items.filter((i) => i.type === "folder");
+    const files = items.filter((i) => i.type !== "folder");
+
+    const sorter = (a, b) => {
+      let cmp = 0;
+      if (sortField === "name") cmp = a.name.localeCompare(b.name);
+      else if (sortField === "modified") cmp = (a.modified || "").localeCompare(b.modified || "");
+      else if (sortField === "size") cmp = (a.size || "").localeCompare(b.size || "");
+      return sortAsc ? cmp : -cmp;
+    };
+
+    return [...folders.sort(sorter), ...files.sort(sorter)];
+  }, [items, sortField, sortAsc]);
+
+  const breadcrumb = ["My Workspace", ...path];
+
+  const navigateToFolder = (folderName) => {
+    setPath([...path, folderName]);
+    setExpandedFolders(new Set());
+  };
+
+  const navigateToBreadcrumb = (index) => {
+    if (index === 0) {
+      setPath([]);
+    } else {
+      setPath(path.slice(0, index));
+    }
+    setExpandedFolders(new Set());
+  };
+
+  const toggleExpand = (folderName) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderName)) next.delete(folderName);
+      else next.add(folderName);
+      return next;
+    });
+  };
+
+  const toggleSort = (field) => {
+    if (sortField === field) setSortAsc(!sortAsc);
+    else {
+      setSortField(field);
+      setSortAsc(true);
+    }
+  };
+
+  const lastSegment = path.length > 0 ? path[path.length - 1] : "My Workspace";
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Page content */}
+      <div className="flex flex-1 flex-col overflow-hidden px-8 pt-10">
+        {/* Title */}
+        <h1 className="mb-4 font-sans text-4xl font-semibold text-text-primary">
+          My Workspace
+        </h1>
+
+        {/* Toolbar */}
+        <div className="mb-3 flex items-center gap-3">
+          {/* Launch button */}
+          <button
+            onClick={() => navigate(`/course/${encodeURIComponent(lastSegment)}`, { state: { path } })}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded bg-white px-3 py-1 text-black transition-colors hover:bg-gray-200"
+          >
+            <span className="font-sans text-[11px] font-medium">Launch</span>
+            <ArrowUpRight className="size-3" />
+          </button>
+
+          {/* Search bar */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded border border-border-subtle bg-bg-elevated px-2.5 py-1">
+            <Search className="size-3.5 shrink-0 text-text-faint" />
+            <input
+              type="text"
+              placeholder="Search files..."
+              className="w-full bg-transparent font-sans text-[11px] text-text-primary outline-none placeholder:text-text-faint"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            {/* View mode toggles */}
+            <div className="flex overflow-hidden rounded border border-border-subtle">
+              <button
+                onClick={() => setViewMode("list")}
+                className={`cursor-pointer p-1.5 transition-colors ${
+                  viewMode === "list"
+                    ? "bg-[#393939] text-text-primary"
+                    : "text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary"
+                }`}
+              >
+                <List className="size-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode("grid")}
+                className={`cursor-pointer p-1.5 transition-colors ${
+                  viewMode === "grid"
+                    ? "bg-[#393939] text-text-primary"
+                    : "text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary"
+                }`}
+              >
+                <LayoutGrid className="size-3.5" />
+              </button>
+            </div>
+
+            <button className="flex cursor-pointer items-center gap-1.5 rounded border border-border-subtle px-2 py-1 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary">
+              <ArrowUpDown className="size-3" />
+              <span className="font-sans text-[11px]">Sort</span>
+            </button>
+
+            <button className="flex cursor-pointer items-center gap-1.5 rounded border border-border-subtle px-2 py-1 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary">
+              <Filter className="size-3" />
+              <span className="font-sans text-[11px]">Filter</span>
+            </button>
+
+            <button className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-3 py-1 text-white transition-colors hover:brightness-110">
+              <Plus className="size-3" />
+              <span className="font-sans text-[11px] font-medium">New file</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Breadcrumb + stats bar */}
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            {breadcrumb.map((seg, i) => (
+              <div key={i} className="flex items-center gap-1">
+                {i > 0 && <ChevronRight className="size-3 text-text-faint" />}
+                <button
+                  onClick={() => navigateToBreadcrumb(i)}
+                  className={`cursor-pointer font-sans text-[11px] transition-colors hover:text-text-primary ${
+                    i === breadcrumb.length - 1
+                      ? "font-medium text-text-primary"
+                      : "text-text-secondary"
+                  }`}
+                >
+                  {seg}
+                </button>
+              </div>
+            ))}
+            <span className="ml-3 font-sans text-[11px] text-text-faint">
+              {items.length} items · 42.8 MB
+            </span>
+          </div>
+          <span className="font-sans text-[11px] text-text-faint">
+            Last modified: 30 minutes ago
+          </span>
+        </div>
+
+        {/* File list / grid */}
+        <div className="flex-1 overflow-y-auto">
+          {viewMode === "list" ? (
+            <div className="flex flex-col">
+              {/* Header */}
+              <div className="flex items-center border-b border-border-default py-1.5">
+                <button
+                  onClick={() => toggleSort("name")}
+                  className="flex flex-1 cursor-pointer items-center gap-1 font-sans text-[11px] font-medium uppercase tracking-wide text-text-faint transition-colors hover:text-text-secondary"
+                >
+                  Name
+                  {sortField === "name" && (
+                    <ChevronDown className={`size-3 transition-transform ${!sortAsc ? "rotate-180" : ""}`} />
+                  )}
+                </button>
+                <button
+                  onClick={() => toggleSort("size")}
+                  className="flex w-20 cursor-pointer items-center gap-1 font-sans text-[11px] font-medium uppercase tracking-wide text-text-faint transition-colors hover:text-text-secondary"
+                >
+                  Size
+                  {sortField === "size" && (
+                    <ChevronDown className={`size-3 transition-transform ${!sortAsc ? "rotate-180" : ""}`} />
+                  )}
+                </button>
+                <button
+                  onClick={() => toggleSort("modified")}
+                  className="flex w-28 cursor-pointer items-center justify-end gap-1 font-sans text-[11px] font-medium uppercase tracking-wide text-text-faint transition-colors hover:text-text-secondary"
+                >
+                  Modified
+                  {sortField === "modified" && (
+                    <ChevronDown className={`size-3 transition-transform ${!sortAsc ? "rotate-180" : ""}`} />
+                  )}
+                </button>
+              </div>
+
+              {/* Items */}
+              {sortedItems.map((item) => (
+                <FileRow
+                  key={item.name}
+                  item={item}
+                  expanded={expandedFolders.has(item.name)}
+                  onToggleExpand={() => toggleExpand(item.name)}
+                  onNavigate={() => navigateToFolder(item.name)}
+                  onNavigateChild={(parentName, childName) => {
+                    setPath([...path, parentName, childName]);
+                    setExpandedFolders(new Set());
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-4 gap-3 pt-2">
+              {sortedItems.map((item) => (
+                <FileCard
+                  key={item.name}
+                  item={item}
+                  onNavigate={() => item.type === "folder" && navigateToFolder(item.name)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom status bar */}
+      <div className="flex h-[30px] shrink-0 items-center justify-between border-t border-border-default bg-bg-sidebar px-8">
+        <span className="font-sans text-[11px] text-text-faint">
+          {formatTotalSize(items)} · 42.8 MB total
+        </span>
+        <button className="flex cursor-pointer items-center gap-1.5 font-sans text-[11px] text-text-secondary transition-colors hover:text-text-primary">
+          <Download className="size-3" />
+          Download
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FileRow({ item, expanded, onToggleExpand, onNavigate, onNavigateChild }) {
+  const Icon = getFileIcon(item);
+  const isFolder = item.type === "folder";
+
+  return (
+    <>
+      <div
+        className="group flex cursor-pointer items-center rounded py-1.5 transition-colors hover:bg-[#2a2a2e]"
+        onClick={() => {
+          if (isFolder) onNavigate();
+        }}
+      >
+        <div className="flex flex-1 items-center gap-2">
+          {isFolder ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpand();
+              }}
+              className="flex size-5 cursor-pointer items-center justify-center rounded transition-colors hover:bg-[#393939]"
+            >
+              {expanded ? (
+                <ChevronDown className="size-3 text-text-secondary" />
+              ) : (
+                <ChevronRight className="size-3 text-text-secondary" />
+              )}
+            </button>
+          ) : (
+            <span className="w-5" />
+          )}
+          <Icon
+            className={`size-4 ${
+              isFolder
+                ? "text-text-primary"
+                : item.type === "pdf"
+                  ? "text-red-400"
+                  : "text-text-secondary"
+            }`}
+          />
+          <span className="font-sans text-[13px] leading-[19.5px] text-text-primary group-hover:text-white">
+            {item.name}
+          </span>
+        </div>
+        <span className="w-20 font-mono text-[11px] text-text-secondary">
+          {item.size || ""}
+        </span>
+        <span className="w-28 text-right font-sans text-[11px] text-text-secondary">
+          {item.modified || ""}
+        </span>
+      </div>
+
+      {/* Expanded folder children (inline preview) */}
+      {isFolder && expanded && item.children && (
+        <div className="ml-7 border-l border-border-default pl-2">
+          {item.children.map((child) => {
+            const ChildIcon = getFileIcon(child);
+            const isChildFolder = child.type === "folder";
+            return (
+              <div
+                key={child.name}
+                onClick={() => {
+                  if (isChildFolder) onNavigateChild(item.name, child.name);
+                }}
+                className={`flex items-center rounded py-1 transition-colors hover:bg-[#2a2a2e] ${
+                  isChildFolder ? "cursor-pointer" : ""
+                }`}
+              >
+                <div className="flex flex-1 items-center gap-2">
+                  <span className="w-5" />
+                  <ChildIcon
+                    className={`size-4 ${
+                      isChildFolder
+                        ? "text-text-primary"
+                        : child.type === "pdf"
+                          ? "text-red-400"
+                          : "text-text-secondary"
+                    }`}
+                  />
+                  <span className="font-sans text-[13px] leading-[19.5px] text-text-primary">
+                    {child.name}
+                  </span>
+                </div>
+                <span className="w-20 font-mono text-[11px] text-text-secondary">
+                  {child.size || ""}
+                </span>
+                <span className="w-28 text-right font-sans text-[11px] text-text-secondary">
+                  {child.modified || ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+function FileCard({ item, onNavigate }) {
+  const Icon = getFileIcon(item);
+  const isFolder = item.type === "folder";
+
+  return (
+    <button
+      onClick={onNavigate}
+      className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-border-subtle bg-bg-elevated p-4 transition-colors hover:border-border-default hover:bg-[#2e2e30] ${
+        !isFolder ? "cursor-default" : ""
+      }`}
+    >
+      {isFolder ? (
+        <FolderOpen className="size-10 text-accent-blue" />
+      ) : (
+        <Icon
+          className={`size-10 ${
+            item.type === "pdf" ? "text-red-400" : "text-text-secondary"
+          }`}
+        />
+      )}
+      <span className="w-full truncate text-center font-sans text-[12px] text-text-primary">
+        {item.name}
+      </span>
+      {item.size && (
+        <span className="font-mono text-[10px] text-text-faint">{item.size}</span>
+      )}
+    </button>
+  );
+}
