@@ -108,21 +108,33 @@ export default function ActiveCourses({ courses, loading }) {
         </span>
       </div>
 
-      <div className="flex flex-col gap-4 pt-4">
+      <div className="flex flex-col gap-5 pt-4">
         {sorted.map((course) => {
           const days = daysUntilNext(course);
           const fill = urgencyFill(days);
 
+          // Upcoming assignments sorted by due date, max 3 shown
+          const upcoming = (course.assignments ?? [])
+            .filter((a) => a.dueAt && !a.submitted)
+            .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt))
+            .slice(0, 3);
+
+          const totalDue = (course.assignments ?? []).filter((a) => a.dueAt && !a.submitted).length;
+
           return (
             <div key={course.id} className="flex flex-col gap-1.5">
+              {/* Course header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className={`size-1.5 rounded-full ${dotColor(days)}`} />
                   <span className="font-mono text-[11px] leading-[16.5px] text-text-primary">
                     {course.courseCode}
                   </span>
+                  <span className="font-sans text-[10px] text-text-faint truncate max-w-[180px]">
+                    {course.shortName}
+                  </span>
                 </div>
-                <span className={`font-sans text-[10px] font-medium leading-[15px] ${statusColor(days)}`}>
+                <span className={`font-sans text-[10px] font-medium leading-[15px] shrink-0 ${statusColor(days)}`}>
                   {statusLabel(days, course)}
                 </span>
               </div>
@@ -135,16 +147,37 @@ export default function ActiveCourses({ courses, loading }) {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <span className="font-sans text-[10px] leading-[15px] text-text-secondary">
-                  {course.shortName}
-                </span>
-                {days !== null && (
-                  <span className="font-mono text-[10px] leading-[15px] text-text-faint">
-                    next due {days === 0 ? "today" : `in ${days}d`}
-                  </span>
-                )}
-              </div>
+              {/* Assignment list */}
+              {upcoming.length > 0 && (
+                <div className="flex flex-col gap-0.5 pt-0.5">
+                  {upcoming.map((a) => {
+                    const h = a.dueAt ? (new Date(a.dueAt) - new Date()) / 36e5 : null;
+                    const color = h === null ? "text-text-faint"
+                      : h < 24 ? "text-red-400"
+                      : h < 72 ? "text-yellow-400"
+                      : "text-text-faint";
+                    const label = h === null ? "" : h < 24 ? "today"
+                      : h < 48 ? "tomorrow"
+                      : `${Math.ceil(h / 24)}d`;
+                    return (
+                      <div key={a.id} className="flex items-center gap-2 pl-3">
+                        <span className="size-1 rounded-full bg-border-default shrink-0" />
+                        <span className="font-sans text-[11px] text-text-secondary truncate flex-1">
+                          {a.name}
+                        </span>
+                        <span className={`font-mono text-[10px] shrink-0 ${color}`}>
+                          {label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {totalDue > 3 && (
+                    <span className="pl-3 font-sans text-[10px] text-text-faint">
+                      +{totalDue - 3} more
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

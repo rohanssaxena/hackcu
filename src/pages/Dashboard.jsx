@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import RecentlyStudied from "../components/RecentlyStudied";
 import ActiveCourses from "../components/ActiveCourses";
 import SuggestedPlan from "../components/SuggestedPlan";
@@ -11,35 +11,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     getFullSnapshot()
-      .then((data) => {
-        console.log("grades check:", data.map((c) => ({
-          code: c.courseCode,
-          grade: c.currentGrade,
-          score: c.currentScore,
-        })));
-        setCourses(data);
-      })
-      .catch((err) => console.error("Canvas API error:", err))
+      .then(setCourses)
+      .catch(() => setCourses([]))
       .finally(() => setLoading(false));
   }, []);
 
   return (
-    <div className="flex-1 overflow-y-auto pt-12 pb-8">
+    <div className="flex-1 overflow-hidden pt-12">
       <div className="flex flex-col items-center">
         <div className="flex flex-col gap-3">
           <h1 className="font-sans text-4xl font-semibold text-text-primary">
             Dashboard
           </h1>
-
           <div className="flex gap-12">
-            {/* Left column */}
             <div className="flex w-[500px] flex-col gap-6">
-              <RecentlyStudied courses={courses} />
+              <RecentlyStudied />
               <ActiveCourses courses={courses} loading={loading} />
               <UpcomingAssignments courses={courses} loading={loading} />
             </div>
-
-            {/* Right column — AI suggested plan */}
             <SuggestedPlan courses={courses} />
           </div>
         </div>
