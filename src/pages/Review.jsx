@@ -384,6 +384,8 @@ export default function Review() {
   const [mode,         setMode]         = useState("flashcards");
   const [error,        setError]        = useState(null);
   const [confirmRegen, setConfirmRegen] = useState(false);
+  const [addingMore,   setAddingMore]   = useState(false);
+  const [moreSelected, setMoreSelected] = useState(new Set());
 
   // Load saved data + files whenever course changes
   useEffect(() => {
@@ -447,6 +449,43 @@ export default function Review() {
 
   function handleRegenClick() { setConfirmRegen(true); }
   function handleClear() { clearSaved(courseId); setData(null); setConfirmRegen(false); }
+
+  const ingestedSources = new Set((data?.terms || []).map(t => t.source));
+
+  async function generateMore() {
+    const key = getAnthropicKey();
+    if (!key) { setError("Add VITE_ANTHROPIC_API_KEY to .env and restart dev server."); return; }
+    if (!moreSelected.size) { setError("Select at least one file."); return; }
+    setGenerating(true);
+    setError(null);
+    const toProcess = files.filter(f => moreSelected.has(f.id));
+    const newTerms = [], newQs = [];
+    try {
+      for (let i = 0; i < toProcess.length; i++) {
+        const f = toProcess[i];
+        setProgress(`Analyzing ${f.display_name || f.filename} (${i + 1}/${toProcess.length})...`);
+        const extracted = await extractFromFile(f, token);
+        const src = f.display_name || f.filename;
+        (extracted.terms     || []).forEach(t => newTerms.push({ ...t, source: src }));
+        (extracted.questions || []).forEach(q => newQs.push({   ...q, source: src }));
+      }
+      if (!newTerms.length) throw new Error("Nothing extracted from the selected files.");
+      const result = {
+        terms:       [...(data?.terms || []),     ...newTerms],
+        questions:   [...(data?.questions || []), ...newQs],
+        generatedAt: data?.generatedAt ?? Date.now(),
+      };
+      persist(courseId, result);
+      setData(result);
+      setAddingMore(false);
+      setMoreSelected(new Set());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGenerating(false);
+      setProgress("");
+    }
+  }
 
   if (!activeCourse) {
     return (
@@ -542,6 +581,50 @@ export default function Review() {
           )}
           {mode === "quiz" && data.questions?.length > 0 && (
             <Quiz questions={data.questions} courseId={courseId} supabase={supabase} />
+          )}
+
+          {/* Add more files */}
+          {!addingMore ? (
+            <button
+              onClick={() => { setAddingMore(true); setMoreSelected(new Set()); setError(null); }}
+              className="flex w-fit items-center gap-2 cursor-pointer rounded-xl border border-border-default px-5 py-2.5 font-sans text-[13px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors mt-2">
+              <Sparkles className="size-4 text-accent-blue" /> Add more files
+            </button>
+          ) : (
+            <div className="flex flex-col gap-4 max-w-2xl rounded-2xl border border-border-default bg-bg-sidebar p-5 mt-2">
+              <div className="flex items-center justify-between">
+                <p className="font-sans text-[13px] font-medium text-text-primary">Add more PDFs to this set</p>
+                <button onClick={() => { setAddingMore(false); setError(null); }}
+                  className="cursor-pointer text-text-faint hover:text-text-primary transition-colors">
+                  <X className="size-4" />
+                </button>
+              </div>
+              {filesLoading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="size-3.5 animate-spin text-text-secondary" />
+                  <span className="font-sans text-[12px] text-text-secondary">Loading files...</span>
+                </div>
+              ) : (
+                <FileSelector
+                  files={files.filter(f => !ingestedSources.has(f.display_name || f.filename))}
+                  selected={moreSelected}
+                  onToggle={id => setMoreSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; })}
+                />
+              )}
+              {!filesLoading && files.filter(f => !ingestedSources.has(f.display_name || f.filename)).length === 0 && (
+                <p className="font-sans text-[12px] text-text-secondary">All available PDFs have already been added.</p>
+              )}
+              {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
+              <button onClick={generateMore}
+                disabled={generating || !moreSelected.size}
+                className="flex w-fit items-center gap-2 cursor-pointer rounded-xl bg-accent-blue px-5 py-2.5 font-sans text-[13px] font-medium text-white hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {generating
+                  ? <><Loader2 className="size-4 animate-spin" /><span className="ml-1">{progress || "Generating..."}</span></>
+                  : <><Sparkles className="size-4" /> Add to set</>
+                }
+              </button>
+              {generating && <p className="font-sans text-[11px] text-text-faint">Keep this tab open.</p>}
+            </div>
           )}
         </div>
       )}
