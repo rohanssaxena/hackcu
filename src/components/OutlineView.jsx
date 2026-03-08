@@ -47,7 +47,7 @@ function WeightPips({ weight, max = 10 }) {
 function ContentNodeDetail({ node }) {
   const [showGuidance, setShowGuidance] = useState(false);
   const navigate = useNavigate();
-  const { courseName } = useParams();
+  const { folderId } = useParams();
   const hasGuidance = node.learning_guidance || node.practice_guidance;
   const tags = node.concept_tags || [];
 
@@ -129,12 +129,12 @@ function ContentNodeDetail({ node }) {
       )}
 
       {/* Learn button */}
-      {node.id && courseName && (
+      {node.id && folderId && (
         <div className="pl-[18px] pt-1">
           <button
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/course/${courseName}/learn/${node.id}`);
+              navigate(`/course/${folderId}/learn/${node.id}`);
             }}
             className="flex cursor-pointer items-center gap-1.5 rounded-md bg-accent-blue/10 px-3 py-1.5 font-sans text-[11px] font-medium text-accent-blue transition-colors hover:bg-accent-blue/20"
           >

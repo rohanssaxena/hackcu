@@ -20,17 +20,21 @@ Upload PDFs, lecture slides, and notes. Micro ingests them, builds a structured 
 ## Getting Started
 
 ```bash
-# Install dependencies
+# Install dependencies (root + server)
 npm install
+cd server && npm install && cd ..
 
-# Start dev server
+# Start dev server (single server: API + frontend with HMR)
 npm run dev
 
 # Build for production
 npm run build
+
+# Run production server (serves built frontend from dist/)
+npm run start
 ```
 
-The dev server runs at `http://localhost:5173`.
+The dev server runs at `http://localhost:3001` — one server serves both the React app and the API.
 
 ## Project Structure
 
@@ -75,6 +79,8 @@ docs/
 Side cards show Upcoming Exam, flashcard Sets with mastery progress, and Recent Activity.
 
 ## Database
+
+**Migration required:** Before using folder-only mode, run `docs/migrations/001_folder_only_course_files.sql` in the Supabase SQL editor. This makes `course_id` nullable on `course_files` and updates RLS to allow access via `folder_id`.
 
 The full schema is in `docs/DDL.sql` — 28 tables covering:
 

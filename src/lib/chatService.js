@@ -1,4 +1,4 @@
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:3001";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "";
 
 export async function listConversations() {
   const res = await fetch(`${SERVER_URL}/api/chat/conversations`);

@@ -187,9 +187,12 @@ export default function Workspace() {
         <div className="mb-3 flex items-center gap-3">
           <button
             onClick={() =>
-              openTab(`/course/${encodeURIComponent(lastSegment)}`, lastSegment)
+              currentNode?.id && currentNode?.type === "folder"
+                ? openTab(`/course/${currentNode.id}`, lastSegment)
+                : null
             }
-            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded bg-white px-3 py-1 text-black transition-colors hover:bg-gray-200"
+            disabled={!currentNode?.id || currentNode?.type !== "folder"}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded bg-white px-3 py-1 text-black transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="font-sans text-[11px] font-medium">Launch</span>
             <ArrowUpRight className="size-3" />

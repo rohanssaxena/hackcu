@@ -97,30 +97,6 @@ export async function resolveFolderId(pathSegments) {
 }
 
 /**
- * Find a course linked to a folder or any of its ancestors.
- */
-async function findCourseForFolder(folderId) {
-  let currentId = folderId;
-  while (currentId) {
-    const { data: course } = await supabase
-      .from("courses")
-      .select("id")
-      .eq("folder_id", currentId)
-      .limit(1)
-      .single();
-    if (course) return course.id;
-
-    const { data: folder } = await supabase
-      .from("folders")
-      .select("parent_id")
-      .eq("id", currentId)
-      .single();
-    currentId = folder?.parent_id || null;
-  }
-  return null;
-}
-
-/**
  * Upload files to Supabase Storage + insert records into course_files.
  * Returns { uploaded: number, errors: string[] }
  */
@@ -128,7 +104,6 @@ export async function uploadFiles(files, pathSegments) {
   const folderId = await resolveFolderId(pathSegments);
   if (!folderId) return { uploaded: 0, errors: ["Could not resolve folder"] };
 
-  const courseId = await findCourseForFolder(folderId);
   const storagePath = pathSegments.join("/");
   const results = { uploaded: 0, errors: [] };
 
@@ -148,7 +123,6 @@ export async function uploadFiles(files, pathSegments) {
     const fileType = mapExtToDbType(ext);
 
     const { error: dbError } = await supabase.from("course_files").insert({
-      course_id: courseId,
       folder_id: folderId,
       filename: file.name,
       storage_path: filePath,

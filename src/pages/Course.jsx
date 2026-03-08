@@ -32,15 +32,13 @@ import { getOutline } from "../lib/outlineService";
 const TABS = ["Overview", "Content", "Files", "Outline", "About"];
 
 export default function Course() {
-  const { courseName } = useParams();
+  const { folderId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const filePath = location.state?.path || [];
   const [activeTab, setActiveTab] = useState("Overview");
 
-  const title = decodeURIComponent(courseName);
-
-  const [course, setCourse] = useState(null);
+  const [folder, setFolder] = useState(null);
   const [topics, setTopics] = useState([]);
   const [mastery, setMastery] = useState({});
   const [studySets, setStudySets] = useState([]);
@@ -50,178 +48,70 @@ export default function Course() {
   const [loading, setLoading] = useState(true);
   const [outlineGenerated, setOutlineGenerated] = useState(false);
   const [lcGenerated, setLcGenerated] = useState(false);
-  const [folderId, setFolderId] = useState(null);
   const [showOutlineModal, setShowOutlineModal] = useState(false);
   const [modalInitialStage, setModalInitialStage] = useState(0);
   const [outlineData, setOutlineData] = useState(null);
 
   useEffect(() => {
+    if (!folderId) {
+      setLoading(false);
+      return;
+    }
+
     async function load() {
-      const { data: courseRow } = await supabase
-        .from("courses")
+      const { data: folderRow, error: folderErr } = await supabase
+        .from("folders")
         .select("*")
+        .eq("id", folderId)
         .eq("user_id", USER_ID)
-        .eq("title", title)
         .single();
 
-      if (!courseRow) {
+      if (folderErr || !folderRow) {
         setLoading(false);
         return;
       }
-      setCourse(courseRow);
+      setFolder(folderRow);
+      setOutlineGenerated(!!folderRow.outline_generated);
+      setLcGenerated(!!folderRow.lc_generated);
 
-      // Load folder outline status
-      if (courseRow.folder_id) {
-        setFolderId(courseRow.folder_id);
-        const { data: folderRow } = await supabase
-          .from("folders")
-          .select("outline_generated, lc_generated")
-          .eq("id", courseRow.folder_id)
-          .single();
-        if (folderRow) {
-          setOutlineGenerated(!!folderRow.outline_generated);
-          setLcGenerated(!!folderRow.lc_generated);
-          if (folderRow.outline_generated) {
-            getOutline(courseRow.folder_id).then((data) => {
-              if (data) setOutlineData(data);
-            });
-          }
-        }
+      if (folderRow.outline_generated) {
+        getOutline(folderId).then((data) => {
+          if (data) setOutlineData(data);
+        });
       }
 
-      const [topicsRes, examRes, actionsRes, filesRes, setsRes] =
-        await Promise.all([
-          supabase
-            .from("topics")
-            .select("*")
-            .eq("course_id", courseRow.id)
-            .order("order_index"),
-          supabase
-            .from("exams")
-            .select("*")
-            .eq("course_id", courseRow.id)
-            .gte("exam_date", new Date().toISOString())
-            .order("exam_date")
-            .limit(1),
-          supabase
-            .from("study_actions")
-            .select("*")
-            .eq("user_id", USER_ID)
-            .eq("course_id", courseRow.id)
-            .order("created_at", { ascending: false })
-            .limit(5),
-          supabase
-            .from("course_files")
-            .select("*")
-            .eq("course_id", courseRow.id)
-            .order("filename"),
-          supabase
-            .from("study_sets")
-            .select("*, study_set_progress(*)")
-            .eq("course_id", courseRow.id)
-            .eq("user_id", USER_ID),
-        ]);
-
-      if (topicsRes.data) {
-        setTopics(topicsRes.data);
-        const { data: beliefs } = await supabase
-          .from("mastery_beliefs")
-          .select("topic_id, p_know, last_reviewed")
-          .eq("user_id", USER_ID)
-          .in(
-            "topic_id",
-            topicsRes.data.map((t) => t.id),
-          );
-        if (beliefs) {
-          const m = {};
-          beliefs.forEach((b) => {
-            m[b.topic_id] = b;
-          });
-          setMastery(m);
-        }
-      }
+      const [filesRes, examRes] = await Promise.all([
+        supabase
+          .from("course_files")
+          .select("*")
+          .eq("folder_id", folderId)
+          .order("filename"),
+        supabase
+          .from("exams")
+          .select("*")
+          .eq("folder_id", folderId)
+          .gte("exam_date", new Date().toISOString())
+          .order("exam_date")
+          .limit(1),
+      ]);
 
       if (examRes.data?.[0]) setExam(examRes.data[0]);
-      if (actionsRes.data) setActivities(actionsRes.data);
 
-      if (filesRes.data) {
-        const folderGroups = {};
-        const standalone = [];
-        for (const f of filesRes.data) {
-          if (f.folder_id) {
-            if (!folderGroups[f.folder_id]) folderGroups[f.folder_id] = [];
-            folderGroups[f.folder_id].push(f);
-          } else {
-            standalone.push(f);
-          }
-        }
-
-        const folderIds = Object.keys(folderGroups);
-        let folderNames = {};
-        if (folderIds.length) {
-          const { data: folders } = await supabase
-            .from("folders")
-            .select("id, name")
-            .in("id", folderIds);
-          if (folders) {
-            folders.forEach((f) => {
-              folderNames[f.id] = f.name;
-            });
-          }
-        }
-
-        const fileTree = [];
-        for (const [fId, fFiles] of Object.entries(folderGroups)) {
-          if (fId === courseRow.folder_id) {
-            standalone.push(...fFiles);
-            continue;
-          }
-          fileTree.push({
-            name: folderNames[fId] || "Folder",
-            type: "folder",
-            children: fFiles.map((f) => ({
-              id: f.id,
-              name: f.filename,
-              type: mapFileType(f.file_type),
-              size: formatBytes(f.file_size_bytes),
-              modified: formatRelative(f.uploaded_at),
-            })),
-          });
-        }
-        standalone.forEach((f) => {
-          fileTree.push({
-            id: f.id,
-            name: f.filename,
-            type: mapFileType(f.file_type),
-            size: formatBytes(f.file_size_bytes),
-            modified: formatRelative(f.uploaded_at),
-          });
-        });
+      if (filesRes.data?.length) {
+        const fileTree = filesRes.data.map((f) => ({
+          id: f.id,
+          name: f.filename,
+          type: mapFileType(f.file_type),
+          size: formatBytes(f.file_size_bytes),
+          modified: formatRelative(f.uploaded_at),
+        }));
         setFiles(fileTree);
-      }
-
-      if (setsRes.data) {
-        setStudySets(
-          setsRes.data.map((s) => {
-            const progress = s.study_set_progress?.[0];
-            const totalCards = s.topic_ids?.length * 10 || 0;
-            const masteredCards = progress
-              ? Math.round((progress.score || 0) * totalCards)
-              : 0;
-            return {
-              id: s.id,
-              name: s.title,
-              cards: totalCards,
-              mastered: masteredCards,
-            };
-          }),
-        );
       }
 
       setLoading(false);
     }
     load();
-  }, [title]);
+  }, [folderId]);
 
   if (loading) {
     return (
@@ -233,6 +123,7 @@ export default function Course() {
     );
   }
 
+  const title = folder?.name || "";
   const pathLabel = filePath.length ? filePath.join(" / ") : title;
 
   return (
@@ -314,7 +205,7 @@ export default function Course() {
       {showOutlineModal && folderId && (
         <OutlineModal
           folderId={folderId}
-          folderName={title}
+          folderName={folder?.name || ""}
           initialStage={modalInitialStage}
           onClose={() => setShowOutlineModal(false)}
           onComplete={() => {
@@ -335,7 +226,7 @@ export default function Course() {
       <div className="flex flex-1 gap-10 pb-8">
         <div className="min-w-0 flex-1">
           {activeTab === "Overview" && (
-            <OverviewTab topics={topics} mastery={mastery} course={course} />
+            <OverviewTab topics={topics} mastery={mastery} folder={folder} outline={outlineData} />
           )}
           {activeTab === "Content" && (
             <ContentTab outline={outlineData} />
@@ -350,7 +241,7 @@ export default function Course() {
               </p>
             )
           )}
-          {activeTab === "About" && <AboutTab course={course} />}
+          {activeTab === "About" && <AboutTab folder={folder} />}
         </div>
 
         <div className="flex w-[260px] shrink-0 flex-col gap-4">
@@ -536,35 +427,43 @@ function SidePanelCards({ exam, studySets, activities, topics, mastery }) {
 
 /* ---- Overview Tab ---- */
 
-function OverviewTab({ topics, mastery, course }) {
+function flattenOutlineNodes(nodes) {
+  const out = [];
+  for (const n of nodes || []) {
+    out.push({ id: n.id, label: n.title, type: n.type });
+    if (n.children?.length) out.push(...flattenOutlineNodes(n.children));
+    if (n.nodes?.length) out.push(...flattenOutlineNodes(n.nodes));
+  }
+  return out;
+}
+
+function OverviewTab({ topics, mastery, folder, outline }) {
   const [mapView, setMapView] = useState("map");
 
-  const sortedTopics = [...topics].sort(
-    (a, b) => a.order_index - b.order_index,
-  );
-  const rootTopics = sortedTopics.filter((t) => !t.parent_topic_id);
-  const childTopics = sortedTopics.filter((t) => t.parent_topic_id);
+  const outlineNodes = outline?.nodes || [];
+  const flatNodes = flattenOutlineNodes(outlineNodes);
+  const contentCount = flatNodes.filter((n) => n.type === "content").length;
 
   const mindmapNodes = [];
   const rootX = 400;
   const rootY = 40;
 
-  if (course) {
+  if (folder) {
     mindmapNodes.push({
       id: "root",
-      label: course.title,
+      label: folder.name,
       x: rootX,
       y: rootY,
       level: 0,
     });
   }
 
-  const spacing = 800 / Math.max(rootTopics.length, 1);
-  rootTopics.forEach((t, i) => {
+  const spacing = 800 / Math.max(outlineNodes.length, 1);
+  outlineNodes.forEach((n, i) => {
     const x = 60 + i * spacing;
     mindmapNodes.push({
-      id: t.id,
-      label: t.name,
+      id: n.id || `n-${i}`,
+      label: n.title || "Section",
       x,
       y: 130,
       level: 1,
@@ -572,93 +471,25 @@ function OverviewTab({ topics, mastery, course }) {
     });
   });
 
-  childTopics.forEach((t) => {
-    const parentNode = mindmapNodes.find((n) => n.id === t.parent_topic_id);
-    if (parentNode) {
-      const siblings = childTopics.filter(
-        (c) => c.parent_topic_id === t.parent_topic_id,
-      );
-      const idx = siblings.indexOf(t);
-      const offset = (idx - (siblings.length - 1) / 2) * 140;
-      mindmapNodes.push({
-        id: t.id,
-        label: t.name,
-        x: parentNode.x + offset,
-        y: parentNode.y + 90,
-        level: 2,
-        parent: t.parent_topic_id,
-      });
-    }
-  });
-
-  const linearOrder = sortedTopics.map((t) => {
-    const m = mastery[t.id];
-    let status = "upcoming";
-    if (m) {
-      if (m.p_know >= 0.8) status = "done";
-      else if (m.p_know >= 0.3) status = "current";
-    }
-    return { id: t.id, label: t.name, status };
-  });
-
-  const nextTopic = sortedTopics.find(
-    (t) => !mastery[t.id] || mastery[t.id].p_know < 0.8,
-  );
-
-  const totalTopics = topics.length;
-  const completedTopics = topics.filter(
-    (t) => mastery[t.id]?.p_know >= 0.8,
-  ).length;
-  const avgMastery =
-    totalTopics > 0
-      ? Math.round(
-          (topics.reduce((s, t) => s + (mastery[t.id]?.p_know || 0), 0) /
-            totalTopics) *
-            100,
-        )
-      : 0;
+  const linearOrder = flatNodes
+    .filter((n) => n.type === "content")
+    .map((n) => ({ id: n.id, label: n.label, status: "upcoming" }));
 
   return (
     <div className="flex flex-col gap-8">
-      {nextTopic && (
-        <div className="flex items-center gap-4 py-2">
-          <div className="flex size-9 items-center justify-center rounded bg-accent-blue/15">
-            <Play className="size-4 text-accent-blue" />
-          </div>
-          <div className="flex flex-1 flex-col">
-            <div className="flex items-center gap-2">
-              <span className="font-sans text-[11px] font-medium uppercase tracking-wide text-text-faint">
-                Next Up
-              </span>
-            </div>
-            <span className="font-sans text-[14px] font-medium text-text-primary">
-              {nextTopic.name}
-            </span>
-            <span className="font-sans text-[12px] text-text-secondary">
-              Topic {nextTopic.order_index} ·{" "}
-              {Math.round((mastery[nextTopic.id]?.p_know || 0) * 100)}% mastery
-            </span>
-          </div>
-          <button className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-4 py-1.5 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110">
-            Continue
-            <ArrowRight className="size-3.5" />
-          </button>
-        </div>
-      )}
-
       <div className="h-px bg-border-default" />
 
       <div className="grid grid-cols-3 gap-4">
         {[
           {
-            label: "Completed",
-            value: `${completedTopics}/${totalTopics}`,
+            label: "Content Nodes",
+            value: contentCount,
             sub: "topics",
           },
-          { label: "Avg Mastery", value: `${avgMastery}%`, sub: "across topics" },
+          { label: "Avg Mastery", value: "—", sub: "across topics" },
           {
             label: "Study Sets",
-            value: `${topics.length > 0 ? completedTopics : 0}`,
+            value: "0",
             sub: "completed",
           },
         ].map((stat) => (
@@ -1152,24 +983,21 @@ function CourseFileRow({
 
 /* ---- About Tab ---- */
 
-function AboutTab({ course }) {
-  if (!course) return null;
+function AboutTab({ folder }) {
+  if (!folder) return null;
 
   return (
     <div className="flex max-w-lg flex-col gap-6">
       <div className="flex flex-col gap-2">
         <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
-          Course Info
+          Folder Info
         </span>
         <div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-4">
           {[
-            ["Name", course.title],
-            ["Subject", course.subject],
-            ["Type", course.subject_type],
-            ["Status", course.status],
+            ["Name", folder.name],
             [
               "Created",
-              new Date(course.created_at).toLocaleDateString("en-US", {
+              new Date(folder.created_at).toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
                 year: "numeric",
@@ -1177,9 +1005,9 @@ function AboutTab({ course }) {
             ],
             [
               "Last active",
-              course.last_accessed_at
-                ? formatRelative(course.last_accessed_at)
-                : "—",
+              folder.last_accessed_at
+                ? formatRelative(folder.last_accessed_at)
+                : formatRelative(folder.updated_at) || "—",
             ],
           ].map(([label, value]) => (
             <div key={label} className="flex items-center justify-between">
@@ -1193,16 +1021,6 @@ function AboutTab({ course }) {
           ))}
         </div>
       </div>
-      {course.description && (
-        <div className="flex flex-col gap-2">
-          <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
-            Description
-          </span>
-          <p className="font-sans text-[13px] leading-[20px] text-text-secondary">
-            {course.description}
-          </p>
-        </div>
-      )}
     </div>
   );
 }

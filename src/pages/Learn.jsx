@@ -162,7 +162,7 @@ function PhaseSection({ phase, phaseIndex, total }) {
 }
 
 export default function Learn() {
-  const { courseName, contentNodeId } = useParams();
+  const { folderId, contentNodeId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [data, setData] = useState(null);

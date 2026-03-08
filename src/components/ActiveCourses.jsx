@@ -1,59 +1,44 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { TrendingUp } from "lucide-react";
 import { supabase, USER_ID } from "../lib/supabase";
 
 export default function ActiveCourses() {
-  const [courses, setCourses] = useState([]);
+  const navigate = useNavigate();
+  const [folders, setFolders] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const { data: courseRows } = await supabase
-        .from("courses")
-        .select("id, title, subject, status, last_accessed_at")
+      const { data: folderRows } = await supabase
+        .from("folders")
+        .select("id, name, last_accessed_at, updated_at")
         .eq("user_id", USER_ID)
-        .eq("status", "ready")
-        .order("last_accessed_at", { ascending: false, nullsFirst: false });
+        .order("last_accessed_at", { ascending: false, nullsFirst: false })
+        .limit(5);
 
-      if (!courseRows) {
+      if (!folderRows) {
         setLoading(false);
         return;
       }
 
       const enriched = await Promise.all(
-        courseRows.map(async (c) => {
-          const { data: beliefs } = await supabase
-            .from("mastery_beliefs")
-            .select("p_know")
-            .eq("user_id", USER_ID)
-            .in(
-              "topic_id",
-              (
-                await supabase
-                  .from("topics")
-                  .select("id")
-                  .eq("course_id", c.id)
-              ).data?.map((t) => t.id) || [],
-            );
-
-          const avgMastery = beliefs?.length
-            ? Math.round(
-                (beliefs.reduce((s, b) => s + b.p_know, 0) / beliefs.length) *
-                  100,
-              )
-            : 0;
-
+        folderRows.map(async (f) => {
+          const { count } = await supabase
+            .from("course_files")
+            .select("*", { count: "exact", head: true })
+            .eq("folder_id", f.id);
+          const fileCount = count ?? 0;
           return {
-            id: c.id,
-            code: c.title,
-            name: c.subject,
-            progress: avgMastery,
-            status: avgMastery >= 70 ? "Up to date" : "In progress",
+            id: f.id,
+            name: f.name,
+            fileCount,
+            status: fileCount > 0 ? "Has content" : "Empty",
           };
         }),
       );
 
-      setCourses(enriched);
+      setFolders(enriched);
       setLoading(false);
     }
     load();
@@ -64,7 +49,7 @@ export default function ActiveCourses() {
       <div className="flex h-9 items-center gap-2 border-b border-border-default pb-px">
         <TrendingUp className="size-3.5 text-text-muted" />
         <span className="font-sans text-[11px] font-medium leading-[16.5px] text-text-muted">
-          Active Courses
+          Recent Folders
         </span>
       </div>
 
@@ -74,36 +59,37 @@ export default function ActiveCourses() {
             Loading…
           </div>
         ) : (
-          courses.map((course) => (
-            <div key={course.id} className="flex flex-col gap-1.5">
+          folders.map((folder) => (
+            <button
+              key={folder.id}
+              onClick={() => navigate(`/course/${folder.id}`)}
+              className="flex cursor-pointer flex-col gap-1.5 text-left transition-colors hover:opacity-90"
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="size-1.5 rounded-full bg-accent-green" />
                   <span className="font-mono text-[11px] leading-[16.5px] text-text-primary">
-                    {course.code}
+                    {folder.name}
                   </span>
                 </div>
                 <span className="font-sans text-[10px] font-medium leading-[15px] text-accent-green">
-                  {course.status}
+                  {folder.status}
                 </span>
               </div>
 
               <div className="flex h-1 w-full overflow-hidden rounded-full bg-bg-elevated">
                 <div
                   className="h-full rounded-full bg-accent-blue"
-                  style={{ width: `${course.progress}%` }}
+                  style={{ width: `${folder.fileCount > 0 ? 50 : 0}%` }}
                 />
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="font-sans text-[10px] leading-[15px] text-text-secondary">
-                  {course.name}
-                </span>
-                <span className="font-mono text-[10px] leading-[15px] text-text-secondary">
-                  {course.progress}%
+                  {folder.fileCount} file{folder.fileCount !== 1 ? "s" : ""}
                 </span>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>

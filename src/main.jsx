@@ -16,8 +16,8 @@ createRoot(document.getElementById("root")).render(
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/workspace" element={<Workspace />} />
-          <Route path="/course/:courseName" element={<Course />} />
-          <Route path="/course/:courseName/learn/:contentNodeId" element={<Learn />} />
+          <Route path="/course/:folderId" element={<Course />} />
+          <Route path="/course/:folderId/learn/:contentNodeId" element={<Learn />} />
           <Route path="/progress" element={<ComingSoon />} />
           <Route path="/academics" element={<ComingSoon />} />
           <Route path="/review" element={<ComingSoon />} />

@@ -47,7 +47,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
   const [favorites, setFavorites] = useState([]);
   const [shortcuts, setShortcuts] = useState([]);
   const [currentFolder, setCurrentFolder] = useState(null);
-  const [activeCourse, setActiveCourse] = useState(null);
+  const [activeFolder, setActiveFolder] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -83,12 +83,15 @@ export default function Sidebar({ onOpenGuidedMode }) {
 
       if (wsRes.data?.folders) {
         setCurrentFolder(wsRes.data.folders);
-        const { data: course } = await supabase
-          .from("courses")
-          .select("id, title")
-          .eq("folder_id", wsRes.data.current_folder_id)
-          .single();
-        if (course) setActiveCourse(course);
+        const folderId = wsRes.data.current_folder_id;
+        if (folderId) {
+          const { data: folder } = await supabase
+            .from("folders")
+            .select("id, name")
+            .eq("id", folderId)
+            .single();
+          if (folder) setActiveFolder(folder);
+        }
       }
     }
     load();
@@ -139,7 +142,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
           <div className="flex items-center gap-1.5">
             <span className="size-1 rounded-full bg-text-primary" />
             <span className="font-sans text-[13px] leading-[19.5px] text-text-primary">
-              {activeCourse?.title || "No course"}
+              {activeFolder?.name || "No folder"}
             </span>
           </div>
           <ChevronDown className="size-3 text-text-secondary" />

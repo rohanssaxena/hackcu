@@ -224,10 +224,10 @@ const handlers = {
 
     if (nodeErr || !node) throw new Error("Content node not found");
 
-    const courseTitle = await resolveCourseTitleForFolder(supabase, node.folder_id);
-    if (!courseTitle) throw new Error("Could not find course for this content node");
+    const folderId = await resolveFolderIdForContentNode(supabase, node.folder_id);
+    if (!folderId) throw new Error("Could not find folder for this content node");
 
-    const path = `/course/${encodeURIComponent(courseTitle)}/learn/${content_node_id}`;
+    const path = `/course/${folderId}/learn/${content_node_id}`;
     return {
       success: true,
       message: `Opening: ${node.title}`,
@@ -245,11 +245,11 @@ const handlers = {
 
     if (nodeErr || !node) throw new Error("Content node not found");
 
-    const courseTitle = await resolveCourseTitleForFolder(supabase, node.folder_id);
-    if (!courseTitle) throw new Error("Could not find course for this content node");
+    const folderId = await resolveFolderIdForContentNode(supabase, node.folder_id);
+    if (!folderId) throw new Error("Could not find folder for this content node");
 
     const idx = Math.max(1, Math.floor(phase_index));
-    const path = `/course/${encodeURIComponent(courseTitle)}/learn/${content_node_id}`;
+    const path = `/course/${folderId}/learn/${content_node_id}`;
     const hash = `#phase-${idx}`;
     return {
       success: true,
@@ -259,25 +259,8 @@ const handlers = {
   },
 };
 
-async function resolveCourseTitleForFolder(supabase, folderId) {
-  let currentId = folderId;
-  while (currentId) {
-    const { data: course } = await supabase
-      .from("courses")
-      .select("title")
-      .eq("folder_id", currentId)
-      .limit(1)
-      .maybeSingle();
-    if (course?.title) return course.title;
-
-    const { data: folder } = await supabase
-      .from("folders")
-      .select("parent_id")
-      .eq("id", currentId)
-      .maybeSingle();
-    currentId = folder?.parent_id || null;
-  }
-  return null;
+async function resolveFolderIdForContentNode(supabase, folderId) {
+  return folderId;
 }
 
 export async function executeTool(name, input) {

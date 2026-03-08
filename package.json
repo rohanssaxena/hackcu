@@ -4,8 +4,9 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "nodemon server/src/index.js",
     "build": "vite build",
+    "start": "NODE_ENV=production node server/src/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "@vitejs/plugin-react": "^5.1.4",
+    "nodemon": "^3.1.14",
     "tailwindcss": "^4.2.1",
     "vite": "^7.3.1"
   }
