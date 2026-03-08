@@ -240,19 +240,35 @@ function CanvasCourseFolder({ course }) {
 
           {/* Generic error */}
           {!loading && error === "error" && (
-            <div className="flex items-center gap-2 py-2 pl-1">
-              <span className="font-sans text-[12px] text-text-secondary">
-                Failed to load files.
-              </span>
-              <a
-                href={canvasUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1 font-sans text-[11px] text-accent-blue hover:underline"
-              >
-                <ExternalLink className="size-3" /> Open in Canvas
-              </a>
+            <div className="flex flex-col gap-2 py-2 pl-1">
+              <div className="flex items-center gap-2">
+                <span className="font-sans text-[12px] text-text-secondary">
+                  Failed to load files from Canvas.
+                </span>
+                <a
+                  href={canvasUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-1 font-sans text-[11px] text-accent-blue hover:underline"
+                >
+                  <ExternalLink className="size-3" /> Open in Canvas
+                </a>
+              </div>
+              <label className="flex w-fit items-center gap-1 font-sans text-[11px] text-text-secondary hover:text-text-primary cursor-pointer transition-colors">
+                <Upload className="size-3" />
+                Upload lecture notes manually
+                <input
+                  type="file"
+                  accept=".pdf,.pptx,.docx,.txt,.md"
+                  multiple
+                  className="hidden"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    console.log("Files to ingest:", [...e.target.files].map(f => f.name));
+                  }}
+                />
+              </label>
             </div>
           )}
 
