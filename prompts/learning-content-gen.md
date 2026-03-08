@@ -1,51 +1,54 @@
-# Generate Learning Content for a Lesson Node
+# Generate Learning Content for a Single Topic
 
-You are generating **learning content for a terminal lesson node** (lowest-level section with `content = true` in the course outline).
+You are generating **phased learning content** for one content node from a course outline.
 
-**Goal:** produce the **simplest, clearest way to explain the concept** in multiple phases, with checkpoints after each phase.
+You will receive:
+- **Topic title**
+- **Objectives** (with importance weights)
+- **Learning guidance** — what the learner should be able to do
+- **Practice guidance** — what kinds of practice questions to create
+
+Produce a sequence of **phases** that teach the topic progressively.
 
 ---
 
 ## Phase Guidelines
 
-1. Phases should be based on **logical groups of sub-concepts**. Each phase introduces **one core idea**.
-2. Use **headings, bullet points, bold, and italics** for clarity:
-   - Headings (`#` or `##`) for main concepts
-   - Bold (`**`) for terminology
-   - Italics (`*`) for emphasis or reminders
-   - Bullets for examples, lists, or steps
-3. Recommended phase length: 150–300 words.
-4. All phases are displayed on the **same page**, no lesson-level wrapper is required.
+1. Each phase covers **one core idea or sub-concept**. Order phases so earlier ones build toward later ones.
+2. Use rich **Markdown formatting**:
+   - Headings (`#`, `##`) for main ideas
+   - **Bold** for key terms
+   - *Italics* for emphasis
+   - Bullet lists for examples, steps, or enumerations
+   - Code blocks or LaTeX (`$...$`) where appropriate for STEM content
+3. Each phase should be **150–400 words** of content.
+4. Give each phase a clear, descriptive **title**.
 
 ---
 
-## Checkpoints
+## Checkpoints (checks)
 
-1. Each phase must include **1–3 multiple-choice questions**.
-2. Each question:
-   - Has **2–4 options**, exactly one correct.
-   - Includes a **difficulty level** (1–10) indicating conceptual difficulty.
-   - Should test understanding of **the immediately preceding phase**.
-   - Distractors must be **plausible but clearly wrong**.
-3. Optionally include hints if it clarifies the question.
+Each phase includes **1–3 multiple-choice questions** testing understanding of that phase's content.
 
----
+Each question has:
+- `question` — the question text
+- `difficulty` — integer 1–10
+- `options` — array of 2–4 choices, each with:
+  - `text` — the option text
+  - `correct` — boolean (exactly one must be true)
+  - `explanation` — why this option is correct or incorrect
 
-## Phase Metadata
-
-Each phase may include:
-
-- `estimated_time_minutes` — suggested time to complete the phase
-- `concept_tags` — list of keywords describing the phase
-- `prerequisites` — optional list of concepts a student should know first
+Distractors must be **plausible but clearly wrong**.
 
 ---
 
-## Rules & Requirements
+## Rules
 
-1. Return **only JSON** that conforms to the provided schema.
-2. Avoid explanations, commentary, or markdown outside the JSON object.
-3. Explain concepts **intuitively first**, then optionally include formulas/examples.
+1. Return **only JSON** conforming to the provided schema.
+2. No commentary, explanations, or markdown outside the JSON.
+3. Cover **all provided objectives** across your phases. Higher-weight objectives deserve more depth.
+4. Explain concepts **intuitively first**, then formalize with definitions, formulas, or worked examples.
+5. The `topic` field in your output **must exactly match** the input topic title.
 
 ---
 
@@ -53,24 +56,31 @@ Each phase may include:
 
 ```json
 {
+  "topic": "Evaluating Limits from Graphs",
   "phases": [
     {
-      "content": "# Derivatives — The Simple Idea\n\nA **derivative** tells you **how fast something is changing at a specific moment**.\nThink of driving a car 🚗.\n\n- Your **speedometer** shows your speed **right now**.\n- That is basically a **derivative**.",
+      "title": "What Is a Limit?",
+      "content": "# What Is a Limit?\n\nA **limit** describes the value a function *approaches* as the input gets closer to some number...",
       "estimated_time_minutes": 5,
-      "concept_tags": ["derivative", "rate of change", "velocity"],
-      "prerequisites": ["limits"],
       "checks": [
         {
-          "question": "Which of these best represents a derivative?",
+          "question": "A function f(x) has f(2) = 5 but the limit as x→2 is 3. What does this tell you?",
           "difficulty": 3,
           "options": [
-            { "key": "a", "text": "Your car's speedometer reading", "correct": true },
-            { "key": "b", "text": "Total distance traveled", "correct": false },
-            { "key": "c", "text": "The length of your road trip", "correct": false },
-            { "key": "d", "text": "The time on a clock", "correct": false }
+            {
+              "text": "The function's value and its limit at a point can differ",
+              "correct": true,
+              "explanation": "Limits describe approach behavior, not the actual value, so they can differ."
+            },
+            {
+              "text": "The limit does not exist at x = 2",
+              "correct": false,
+              "explanation": "The limit does exist (it's 3); it just doesn't equal f(2)."
+            }
           ]
         }
       ]
     }
   ]
 }
+```

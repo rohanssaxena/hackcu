@@ -1,67 +1,154 @@
 {
   "type": "object",
-  "required": ["title", "sections"],
+  "required": ["title", "nodes"],
   "additionalProperties": false,
   "properties": {
     "title": { "type": "string" },
-    "sections": {
+    "nodes": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": ["title", "content"],
-        "additionalProperties": false,
-        "properties": {
-          "title": { "type": "string" },
-          "content": { "type": "boolean" },
-          "objectives": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "practice_guidance": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "subsections": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["title", "content"],
-              "additionalProperties": false,
-              "properties": {
-                "title": { "type": "string" },
-                "content": { "type": "boolean" },
-                "objectives": {
-                  "type": "array",
-                  "items": { "type": "string" }
-                },
-                "practice_guidance": {
-                  "type": "array",
-                  "items": { "type": "string" }
-                },
-                "topics": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": ["title", "content"],
-                    "additionalProperties": false,
-                    "properties": {
-                      "title": { "type": "string" },
-                      "content": { "type": "boolean" },
-                      "objectives": {
-                        "type": "array",
-                        "items": { "type": "string" }
-                      },
-                      "practice_guidance": {
-                        "type": "array",
-                        "items": { "type": "string" }
+        "anyOf": [
+          {
+            "type": "object",
+            "required": ["title", "type", "nodes"],
+            "additionalProperties": false,
+            "properties": {
+              "title": { "type": "string" },
+              "type": { "type": "string", "enum": ["group"] },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["title", "type", "nodes"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "title": { "type": "string" },
+                        "type": { "type": "string", "enum": ["group"] },
+                        "nodes": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["title", "type", "nodes"],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "title": { "type": "string" },
+                                  "type": { "type": "string", "enum": ["group"] },
+                                  "nodes": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "required": ["title", "type", "objectives", "concept_tags", "learning_guidance", "practice_guidance"],
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "title": { "type": "string" },
+                                        "type": { "type": "string", "enum": ["content"] },
+                                        "objectives": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "required": ["objective", "weight"],
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "objective": { "type": "string" },
+                                              "weight": { "type": "integer" }
+                                            }
+                                          }
+                                        },
+                                        "concept_tags": { "type": "array", "items": { "type": "string" } },
+                                        "learning_guidance": { "type": "string" },
+                                        "practice_guidance": { "type": "string" }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "required": ["title", "type", "objectives", "concept_tags", "learning_guidance", "practice_guidance"],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "title": { "type": "string" },
+                                  "type": { "type": "string", "enum": ["content"] },
+                                  "objectives": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "required": ["objective", "weight"],
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "objective": { "type": "string" },
+                                        "weight": { "type": "integer" }
+                                      }
+                                    }
+                                  },
+                                  "concept_tags": { "type": "array", "items": { "type": "string" } },
+                                  "learning_guidance": { "type": "string" },
+                                  "practice_guidance": { "type": "string" }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["title", "type", "objectives", "concept_tags", "learning_guidance", "practice_guidance"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "title": { "type": "string" },
+                        "type": { "type": "string", "enum": ["content"] },
+                        "objectives": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": ["objective", "weight"],
+                            "additionalProperties": false,
+                            "properties": {
+                              "objective": { "type": "string" },
+                              "weight": { "type": "integer" }
+                            }
+                          }
+                        },
+                        "concept_tags": { "type": "array", "items": { "type": "string" } },
+                        "learning_guidance": { "type": "string" },
+                        "practice_guidance": { "type": "string" }
                       }
                     }
-                  }
+                  ]
                 }
               }
             }
+          },
+          {
+            "type": "object",
+            "required": ["title", "type", "objectives", "concept_tags", "learning_guidance", "practice_guidance"],
+            "additionalProperties": false,
+            "properties": {
+              "title": { "type": "string" },
+              "type": { "type": "string", "enum": ["content"] },
+              "objectives": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["objective", "weight"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "objective": { "type": "string" },
+                    "weight": { "type": "integer" }
+                  }
+                }
+              },
+              "concept_tags": { "type": "array", "items": { "type": "string" } },
+              "learning_guidance": { "type": "string" },
+              "practice_guidance": { "type": "string" }
+            }
           }
-        }
+        ]
       }
     }
   }

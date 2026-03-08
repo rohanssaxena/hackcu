@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   X,
   FileText,
@@ -19,8 +19,9 @@ import OutlineView from "./OutlineView";
 const STAGES = [
   "Files to Index",
   "Generating Outline",
+  "Review Outline",
   "Generating Content",
-  "Review",
+  "Finished",
 ];
 
 function formatBytes(bytes) {
@@ -91,10 +92,10 @@ function ConfirmDiscardDialog({ onCancel, onConfirm }) {
   );
 }
 
-export default function OutlineModal({ folderId, folderName, onClose, onComplete }) {
-  const [stage, setStage] = useState(0);
+export default function OutlineModal({ folderId, folderName, onClose, onComplete, initialStage = 0 }) {
+  const [stage, setStage] = useState(initialStage);
   const [files, setFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialStage === 0);
   const [outline, setOutline] = useState(null);
   const [error, setError] = useState(null);
   const [showConfirmDiscard, setShowConfirmDiscard] = useState(false);
@@ -102,12 +103,15 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
   // Stage 1 sub-steps
   const [outlineSubStep, setOutlineSubStep] = useState(0);
 
-  // Stage 2 (content gen) state
+  // Stage 3 (content gen) state
   const [contentNodes, setContentNodes] = useState([]);
-  const [contentNodeStatuses, setContentNodeStatuses] = useState([]);
+  const [contentCompleted, setContentCompleted] = useState(0);
+  const [contentTotal, setContentTotal] = useState(0);
+
+  const isProcessing = stage === 1 || stage === 3;
 
   const attemptClose = () => {
-    if (stage >= 1 && stage <= 2) {
+    if (isProcessing) {
       setShowConfirmDiscard(true);
     } else {
       onClose();
@@ -115,16 +119,24 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
   };
 
   useEffect(() => {
-    getFilesForFolder(folderId)
-      .then((f) => {
-        setFiles(f);
-        setLoading(false);
-      })
-      .catch((e) => {
-        setError(e.message);
-        setLoading(false);
-      });
-  }, [folderId]);
+    if (initialStage === 0) {
+      getFilesForFolder(folderId)
+        .then((f) => {
+          setFiles(f);
+          setLoading(false);
+        })
+        .catch((e) => {
+          setError(e.message);
+          setLoading(false);
+        });
+    }
+  }, [folderId, initialStage]);
+
+  useEffect(() => {
+    if (initialStage === 3) {
+      handleContinueToContent();
+    }
+  }, []);
 
   const handleGenerate = async () => {
     setStage(1);
@@ -132,56 +144,40 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
     setOutlineSubStep(0);
 
     try {
-      // sub-step 0: extracting
       const advanceTimer = setTimeout(() => setOutlineSubStep(1), 3000);
 
       const result = await requestOutlineGeneration(folderId);
       clearTimeout(advanceTimer);
 
-      // sub-step 2: storing
       setOutlineSubStep(2);
       await new Promise((r) => setTimeout(r, 800));
       setOutlineSubStep(3);
       setOutline(result);
 
       await new Promise((r) => setTimeout(r, 400));
-
-      // Move to stage 2: content generation
       setStage(2);
-      await runContentGeneration();
     } catch (e) {
       setError(e.message);
     }
   };
 
-  const runContentGeneration = async () => {
+  const handleContinueToContent = async () => {
+    setStage(3);
+    setError(null);
+    setContentCompleted(0);
+
     try {
       await requestContentGeneration(folderId, (event) => {
         switch (event.type) {
           case "start":
-            setContentNodes(event.nodes);
-            setContentNodeStatuses(event.nodes.map(() => "pending"));
+            setContentNodes(event.nodes || []);
+            setContentTotal(event.total || 0);
+            setContentCompleted(event.alreadyDone || 0);
             break;
           case "node_start":
-            setContentNodeStatuses((prev) => {
-              const next = [...prev];
-              next[event.index] = "active";
-              return next;
-            });
             break;
-          case "node_done":
-            setContentNodeStatuses((prev) => {
-              const next = [...prev];
-              next[event.index] = "done";
-              return next;
-            });
-            break;
-          case "node_error":
-            setContentNodeStatuses((prev) => {
-              const next = [...prev];
-              next[event.index] = "error";
-              return next;
-            });
+          case "node_complete":
+            setContentCompleted(event.completed || 0);
             break;
           case "error":
             setError(event.error);
@@ -192,7 +188,7 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
       });
 
       await new Promise((r) => setTimeout(r, 400));
-      setStage(3);
+      setStage(4);
     } catch (e) {
       setError(e.message);
     }
@@ -203,241 +199,268 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
     onClose();
   };
 
-  const doneCount = contentNodeStatuses.filter((s) => s === "done").length;
-
   return (
     <>
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={attemptClose}
-    >
       <div
-        className="flex h-[80vh] w-[640px] flex-col overflow-hidden rounded-lg border border-border-default bg-bg-primary shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        onClick={attemptClose}
       >
-        {/* Title bar */}
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border-default bg-[#141414] px-4">
-          <span className="font-sans text-[13px] font-medium text-text-primary">
-            Generate Outline — {folderName}
-          </span>
-          <button
-            onClick={attemptClose}
-            className="cursor-pointer rounded p-1 text-text-secondary transition-colors hover:bg-[#232323] hover:text-text-primary"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+        <div
+          className="flex h-[80vh] w-[640px] flex-col overflow-hidden rounded-lg border border-border-default bg-bg-primary shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Title bar */}
+          <div className="flex h-10 shrink-0 items-center justify-between border-b border-border-default bg-[#141414] px-4">
+            <span className="font-sans text-[13px] font-medium text-text-primary">
+              Generate Outline — {folderName}
+            </span>
+            <button
+              onClick={attemptClose}
+              className="cursor-pointer rounded p-1 text-text-secondary transition-colors hover:bg-[#232323] hover:text-text-primary"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
 
-        {/* Stage indicator */}
-        <div className="flex items-center gap-2 border-b border-border-default bg-[#141414] px-4 py-2.5">
-          {STAGES.map((label, i) => (
-            <div key={label} className="flex items-center gap-2">
-              {i > 0 && <ChevronRight className="size-3 text-text-faint" />}
-              <div className="flex items-center gap-1.5">
-                <div
-                  className={`flex size-5 items-center justify-center rounded-full font-mono text-[10px] ${
-                    i < stage
-                      ? "bg-accent-green text-black"
-                      : i === stage
-                        ? "bg-accent-blue text-white"
-                        : "bg-[#232323] text-text-faint"
-                  }`}
-                >
-                  {i < stage ? <CheckCircle2 className="size-3" /> : i + 1}
-                </div>
-                <span
-                  className={`font-sans text-[11px] ${
-                    i === stage
-                      ? "font-medium text-text-primary"
-                      : i < stage
-                        ? "text-text-secondary"
-                        : "text-text-faint"
-                  }`}
-                >
-                  {label}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {/* Stage 0: File preview */}
-          {stage === 0 && (
-            <div className="flex flex-col gap-3">
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="size-5 animate-spin text-text-faint" />
-                </div>
-              ) : files.length === 0 ? (
-                <p className="py-8 text-center font-sans text-[13px] text-text-faint">
-                  No files found in this folder.
-                </p>
-              ) : (
-                <>
-                  <p className="font-sans text-[12px] text-text-secondary">
-                    The following {files.length} file{files.length !== 1 ? "s" : ""} will
-                    be indexed to generate the outline:
-                  </p>
-                  <div className="flex flex-col rounded-md border border-border-default">
-                    {files.map((f, i) => {
-                      const Icon = f.file_type === "pdf" ? FileText : File;
-                      return (
-                        <div
-                          key={f.id}
-                          className={`flex items-center gap-3 px-3 py-2 ${
-                            i > 0 ? "border-t border-border-default" : ""
-                          }`}
-                        >
-                          <Icon
-                            className={`size-4 shrink-0 ${
-                              f.file_type === "pdf" ? "text-red-400" : "text-text-secondary"
-                            }`}
-                          />
-                          <span className="flex-1 font-sans text-[13px] text-text-primary">
-                            {f.filename}
-                          </span>
-                          <span className="font-mono text-[11px] text-text-faint">
-                            {formatBytes(f.file_size_bytes)}
-                          </span>
-                        </div>
-                      );
-                    })}
+          {/* Stage indicator */}
+          <div className="flex items-center gap-2 border-b border-border-default bg-[#141414] px-4 py-2.5">
+            {STAGES.map((label, i) => (
+              <div key={label} className="flex items-center gap-2">
+                {i > 0 && <ChevronRight className="size-3 text-text-faint" />}
+                <div className="flex items-center gap-1.5">
+                  <div
+                    className={`flex size-5 items-center justify-center rounded-full font-mono text-[10px] ${
+                      i < stage
+                        ? "bg-accent-green text-black"
+                        : i === stage
+                          ? "bg-accent-blue text-white"
+                          : "bg-[#232323] text-text-faint"
+                    }`}
+                  >
+                    {i < stage ? <CheckCircle2 className="size-3" /> : i + 1}
                   </div>
-                </>
-              )}
-              {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
-            </div>
-          )}
-
-          {/* Stage 1: Outline generation — sub-step checklist */}
-          {stage === 1 && (
-            <div className="flex flex-col items-center justify-center gap-8 py-12">
-              <div className="flex flex-col gap-4">
-                <SubStepRow
-                  label="Extracting text from files"
-                  status={outlineSubStep > 0 ? "done" : outlineSubStep === 0 ? "active" : "pending"}
-                />
-                <SubStepRow
-                  label="Generating outline with AI"
-                  status={outlineSubStep > 1 ? "done" : outlineSubStep === 1 ? "active" : "pending"}
-                />
-                <SubStepRow
-                  label="Parsing and storing structure"
-                  status={outlineSubStep > 2 ? "done" : outlineSubStep === 2 ? "active" : "pending"}
-                />
-              </div>
-              <span className="font-sans text-[11px] text-text-faint">
-                Processing {files.length} file{files.length !== 1 ? "s" : ""}…
-              </span>
-              {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
-            </div>
-          )}
-
-          {/* Stage 2: Content generation — section-by-section progress */}
-          {stage === 2 && (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <p className="font-sans text-[13px] font-medium text-text-primary">
-                  Generating learning content…
-                </p>
-                {contentNodes.length > 0 && (
-                  <span className="font-mono text-[11px] text-text-faint">
-                    {doneCount} / {contentNodes.length}
+                  <span
+                    className={`font-sans text-[11px] ${
+                      i === stage
+                        ? "font-medium text-text-primary"
+                        : i < stage
+                          ? "text-text-secondary"
+                          : "text-text-faint"
+                    }`}
+                  >
+                    {label}
                   </span>
-                )}
+                </div>
               </div>
+            ))}
+          </div>
 
-              {contentNodes.length === 0 ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="size-5 animate-spin text-text-faint" />
-                </div>
-              ) : (
-                <div className="flex flex-col rounded-md border border-border-default">
-                  {contentNodes.map((title, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center gap-3 px-3 py-2.5 ${
-                        i > 0 ? "border-t border-border-default" : ""
-                      }`}
-                    >
-                      {contentNodeStatuses[i] === "done" && (
-                        <CheckCircle2 className="size-4 shrink-0 text-accent-green" />
-                      )}
-                      {contentNodeStatuses[i] === "active" && (
-                        <Loader2 className="size-4 shrink-0 animate-spin text-accent-blue" />
-                      )}
-                      {contentNodeStatuses[i] === "pending" && (
-                        <Circle className="size-4 shrink-0 text-[#333]" />
-                      )}
-                      {contentNodeStatuses[i] === "error" && (
-                        <AlertCircle className="size-4 shrink-0 text-red-400" />
-                      )}
-                      <span
-                        className={`font-sans text-[13px] ${
-                          contentNodeStatuses[i] === "done"
-                            ? "text-text-secondary"
-                            : contentNodeStatuses[i] === "active"
-                              ? "font-medium text-text-primary"
-                              : contentNodeStatuses[i] === "error"
-                                ? "text-red-400"
-                                : "text-text-faint"
-                        }`}
-                      >
-                        {title}
-                      </span>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-5">
+            {/* Stage 0: File preview */}
+            {stage === 0 && (
+              <div className="flex flex-col gap-3">
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="size-5 animate-spin text-text-faint" />
+                  </div>
+                ) : files.length === 0 ? (
+                  <p className="py-8 text-center font-sans text-[13px] text-text-faint">
+                    No files found in this folder.
+                  </p>
+                ) : (
+                  <>
+                    <p className="font-sans text-[12px] text-text-secondary">
+                      The following {files.length} file{files.length !== 1 ? "s" : ""} will
+                      be indexed to generate the outline:
+                    </p>
+                    <div className="flex flex-col rounded-md border border-border-default">
+                      {files.map((f, i) => {
+                        const Icon = f.file_type === "pdf" ? FileText : File;
+                        return (
+                          <div
+                            key={f.id}
+                            className={`flex items-center gap-3 px-3 py-2 ${
+                              i > 0 ? "border-t border-border-default" : ""
+                            }`}
+                          >
+                            <Icon
+                              className={`size-4 shrink-0 ${
+                                f.file_type === "pdf" ? "text-red-400" : "text-text-secondary"
+                              }`}
+                            />
+                            <span className="flex-1 font-sans text-[13px] text-text-primary">
+                              {f.filename}
+                            </span>
+                            <span className="font-mono text-[11px] text-text-faint">
+                              {formatBytes(f.file_size_bytes)}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </>
+                )}
+                {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
+              </div>
+            )}
+
+            {/* Stage 1: Outline generation — sub-step checklist */}
+            {stage === 1 && (
+              <div className="flex flex-col items-center justify-center gap-8 py-12">
+                <div className="flex flex-col gap-4">
+                  <SubStepRow
+                    label="Extracting text from files"
+                    status={outlineSubStep > 0 ? "done" : outlineSubStep === 0 ? "active" : "pending"}
+                  />
+                  <SubStepRow
+                    label="Generating outline with AI"
+                    status={outlineSubStep > 1 ? "done" : outlineSubStep === 1 ? "active" : "pending"}
+                  />
+                  <SubStepRow
+                    label="Parsing and storing structure"
+                    status={outlineSubStep > 2 ? "done" : outlineSubStep === 2 ? "active" : "pending"}
+                  />
                 </div>
-              )}
+                <span className="font-sans text-[11px] text-text-faint">
+                  Processing {files.length} file{files.length !== 1 ? "s" : ""}…
+                </span>
+                {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
+              </div>
+            )}
 
-              {error && <p className="mt-2 font-sans text-[12px] text-red-400">{error}</p>}
-            </div>
-          )}
+            {/* Stage 2: Review outline */}
+            {stage === 2 && outline && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-accent-green" />
+                  <span className="font-sans text-[13px] font-medium text-text-primary">
+                    Outline generated — review before continuing
+                  </span>
+                </div>
+                <OutlineView outline={outline} />
+              </div>
+            )}
 
-          {/* Stage 3: Review */}
-          {stage === 3 && outline && (
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="size-4 text-accent-green" />
-                <span className="font-sans text-[13px] font-medium text-text-primary">
-                  Outline & content generated successfully
+            {/* Stage 3: Content generation — per-node progress */}
+            {stage === 3 && (
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col items-center justify-center gap-6 py-6">
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="size-6 animate-spin text-accent-blue" />
+                    <span className="font-sans text-[13px] font-medium text-text-primary">
+                      Generating learning content
+                    </span>
+                    {contentTotal > 0 && (
+                      <span className="font-sans text-[12px] text-text-secondary">
+                        {contentCompleted} / {contentTotal} topics completed
+                      </span>
+                    )}
+                  </div>
+
+                  {contentTotal > 0 && (
+                    <div className="w-full max-w-xs">
+                      <div className="flex h-2 overflow-hidden rounded-full bg-[#232323]">
+                        <div
+                          className="h-full rounded-full bg-accent-blue transition-all duration-300"
+                          style={{ width: `${Math.round((contentCompleted / contentTotal) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {contentNodes.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="font-sans text-[12px] text-text-secondary">
+                      Topics ({contentNodes.length}):
+                    </p>
+                    <div className="flex flex-col rounded-md border border-border-default">
+                      {contentNodes.map((title, i) => {
+                        const isDone = i < contentCompleted;
+                        const isActive = i === contentCompleted && contentCompleted < contentTotal;
+                        return (
+                          <div
+                            key={i}
+                            className={`flex items-center gap-3 px-3 py-2 ${
+                              i > 0 ? "border-t border-border-default" : ""
+                            }`}
+                          >
+                            {isDone && <CheckCircle2 className="size-3.5 shrink-0 text-accent-green" />}
+                            {isActive && <Loader2 className="size-3.5 shrink-0 animate-spin text-accent-blue" />}
+                            {!isDone && !isActive && <Circle className="size-3 shrink-0 text-[#333]" />}
+                            <span
+                              className={`font-sans text-[13px] ${
+                                isDone
+                                  ? "text-text-secondary"
+                                  : isActive
+                                    ? "font-medium text-text-primary"
+                                    : "text-text-faint"
+                              }`}
+                            >
+                              {title}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {error && <p className="mt-2 font-sans text-[12px] text-red-400">{error}</p>}
+              </div>
+            )}
+
+            {/* Stage 4: Finished */}
+            {stage === 4 && (
+              <div className="flex flex-col items-center justify-center gap-4 py-16">
+                <CheckCircle2 className="size-10 text-accent-green" />
+                <span className="font-sans text-[15px] font-medium text-text-primary">
+                  Outline & learning content generated
+                </span>
+                <span className="font-sans text-[13px] text-text-secondary">
+                  {contentTotal} topics with learning phases are ready.
                 </span>
               </div>
-              <OutlineView outline={outline} />
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Footer */}
-        <div className="flex h-14 shrink-0 items-center justify-end gap-3 border-t border-border-default bg-[#141414] px-4">
-          {stage === 0 && (
-            <button
-              onClick={handleGenerate}
-              disabled={loading || files.length === 0}
-              className="flex cursor-pointer items-center gap-1.5 rounded bg-white px-4 py-1.5 font-sans text-[12px] font-medium text-black transition-colors hover:bg-gray-200 disabled:cursor-default disabled:opacity-40"
-            >
-              Generate Outline
-            </button>
-          )}
-          {stage === 3 && (
-            <button
-              onClick={handleDone}
-              className="flex cursor-pointer items-center gap-1.5 rounded bg-white px-4 py-1.5 font-sans text-[12px] font-medium text-black transition-colors hover:bg-gray-200"
-            >
-              Done
-            </button>
-          )}
+          {/* Footer */}
+          <div className="flex h-14 shrink-0 items-center justify-end gap-3 border-t border-border-default bg-[#141414] px-4">
+            {stage === 0 && (
+              <button
+                onClick={handleGenerate}
+                disabled={loading || files.length === 0}
+                className="flex cursor-pointer items-center gap-1.5 rounded bg-white px-4 py-1.5 font-sans text-[12px] font-medium text-black transition-colors hover:bg-gray-200 disabled:cursor-default disabled:opacity-40"
+              >
+                Generate Outline
+              </button>
+            )}
+            {stage === 2 && (
+              <button
+                onClick={handleContinueToContent}
+                className="flex cursor-pointer items-center gap-1.5 rounded bg-white px-4 py-1.5 font-sans text-[12px] font-medium text-black transition-colors hover:bg-gray-200"
+              >
+                Generate Content
+              </button>
+            )}
+            {stage === 4 && (
+              <button
+                onClick={handleDone}
+                className="flex cursor-pointer items-center gap-1.5 rounded bg-white px-4 py-1.5 font-sans text-[12px] font-medium text-black transition-colors hover:bg-gray-200"
+              >
+                Done
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-    {showConfirmDiscard && (
-      <ConfirmDiscardDialog
-        onCancel={() => setShowConfirmDiscard(false)}
-        onConfirm={onClose}
-      />
-    )}
+      {showConfirmDiscard && (
+        <ConfirmDiscardDialog
+          onCancel={() => setShowConfirmDiscard(false)}
+          onConfirm={onClose}
+        />
+      )}
     </>
   );
 }

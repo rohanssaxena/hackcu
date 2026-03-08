@@ -17,52 +17,87 @@ export async function getFilesForFolder(folderId) {
 }
 
 /**
- * Fetch the outline for a folder by querying normalized tables
- * and reconstructing the tree structure.
+ * Fetch the outline for a folder by querying groups, content_nodes,
+ * and objectives, then reconstructing the recursive tree client-side.
  */
 export async function getOutline(folderId) {
-  const { data: outline, error: outlineErr } = await supabase
-    .from("outlines")
-    .select("id, title")
-    .eq("folder_id", folderId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const [groupsRes, nodesRes] = await Promise.all([
+    supabase
+      .from("groups")
+      .select("id, parent, title, order, progress")
+      .eq("folder_id", folderId)
+      .order("order"),
+    supabase
+      .from("content_nodes")
+      .select("id, parent, title, order, concept_tags, learning_guidance, practice_guidance")
+      .eq("folder_id", folderId)
+      .order("order"),
+  ]);
 
-  if (outlineErr) throw new Error(outlineErr.message);
-  if (!outline) return null;
+  if (groupsRes.error) throw new Error(groupsRes.error.message);
+  if (nodesRes.error) throw new Error(nodesRes.error.message);
 
-  const { data: sections } = await supabase
-    .from("outline_sections")
-    .select("id, title, content, objectives, practice_guidance, order_index")
-    .eq("outline_id", outline.id)
-    .order("order_index");
+  const groups = groupsRes.data || [];
+  const contentNodes = nodesRes.data || [];
 
-  for (const section of sections || []) {
-    if (section.content) continue;
+  if (!groups.length && !contentNodes.length) return null;
 
-    const { data: subsections } = await supabase
-      .from("outline_subsections")
-      .select("id, title, content, objectives, practice_guidance, order_index")
-      .eq("section_id", section.id)
-      .order("order_index");
+  const contentIds = contentNodes.map((n) => n.id);
+  let objectives = [];
+  if (contentIds.length) {
+    const { data, error } = await supabase
+      .from("objectives")
+      .select("content_node, objective, weight")
+      .in("content_node", contentIds);
+    if (error) throw new Error(error.message);
+    objectives = data || [];
+  }
 
-    section.subsections = subsections || [];
+  const objMap = new Map();
+  for (const obj of objectives) {
+    if (!objMap.has(obj.content_node)) objMap.set(obj.content_node, []);
+    objMap.get(obj.content_node).push({ objective: obj.objective, weight: obj.weight });
+  }
 
-    for (const sub of section.subsections) {
-      if (sub.content) continue;
+  const groupMap = new Map();
+  for (const g of groups) {
+    groupMap.set(g.id, { ...g, type: "group", children: [] });
+  }
 
-      const { data: topics } = await supabase
-        .from("outline_topics")
-        .select("id, title, content, objectives, practice_guidance, order_index")
-        .eq("subsection_id", sub.id)
-        .order("order_index");
+  const contentNodeItems = contentNodes.map((n) => ({
+    ...n,
+    type: "content",
+    objectives: objMap.get(n.id) || [],
+  }));
 
-      sub.topics = topics || [];
+  for (const g of groups) {
+    const node = groupMap.get(g.id);
+    if (g.parent && groupMap.has(g.parent)) {
+      groupMap.get(g.parent).children.push(node);
     }
   }
 
-  return { ...outline, sections: sections || [] };
+  for (const cn of contentNodeItems) {
+    if (cn.parent && groupMap.has(cn.parent)) {
+      groupMap.get(cn.parent).children.push(cn);
+    }
+  }
+
+  // Sort children by order
+  for (const g of groupMap.values()) {
+    g.children.sort((a, b) => a.order - b.order);
+  }
+
+  const roots = [];
+  for (const g of groups) {
+    if (!g.parent) roots.push(groupMap.get(g.id));
+  }
+  for (const cn of contentNodeItems) {
+    if (!cn.parent) roots.push(cn);
+  }
+  roots.sort((a, b) => a.order - b.order);
+
+  return { title: null, nodes: roots };
 }
 
 /**
@@ -85,8 +120,8 @@ export async function requestOutlineGeneration(folderId) {
 /**
  * Stream content generation progress via SSE.
  * @param {string} folderId
- * @param {(event: object) => void} onEvent - callback for each SSE event
- * @returns {Promise<void>} resolves when stream ends
+ * @param {(event: object) => void} onEvent
+ * @returns {Promise<void>}
  */
 export async function requestContentGeneration(folderId, onEvent) {
   const res = await fetch(`${SERVER_URL}/api/agents/content/generate`, {

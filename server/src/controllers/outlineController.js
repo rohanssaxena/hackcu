@@ -1,4 +1,4 @@
-import { runOutlinePipeline } from "../services/outlineService.js";
+import { runOutlinePipeline } from "../services/outline-generation.js";
 
 export async function generateOutline(req, res) {
   try {

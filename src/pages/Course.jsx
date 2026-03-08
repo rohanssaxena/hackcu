@@ -49,8 +49,10 @@ export default function Course() {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [outlineGenerated, setOutlineGenerated] = useState(false);
+  const [lcGenerated, setLcGenerated] = useState(false);
   const [folderId, setFolderId] = useState(null);
   const [showOutlineModal, setShowOutlineModal] = useState(false);
+  const [modalInitialStage, setModalInitialStage] = useState(0);
   const [outlineData, setOutlineData] = useState(null);
 
   useEffect(() => {
@@ -73,11 +75,12 @@ export default function Course() {
         setFolderId(courseRow.folder_id);
         const { data: folderRow } = await supabase
           .from("folders")
-          .select("outline_generated")
+          .select("outline_generated, lc_generated")
           .eq("id", courseRow.folder_id)
           .single();
         if (folderRow) {
           setOutlineGenerated(!!folderRow.outline_generated);
+          setLcGenerated(!!folderRow.lc_generated);
           if (folderRow.outline_generated) {
             getOutline(courseRow.folder_id).then((data) => {
               if (data) setOutlineData(data);
@@ -270,9 +273,14 @@ export default function Course() {
             </button>
           ))}
         </div>
-        <div className="ml-auto pb-2">
+        <div className="ml-auto flex items-center gap-2 pb-2">
           <button
-            onClick={() => !outlineGenerated && setShowOutlineModal(true)}
+            onClick={() => {
+              if (!outlineGenerated) {
+                setModalInitialStage(0);
+                setShowOutlineModal(true);
+              }
+            }}
             disabled={outlineGenerated}
             className={`flex items-center gap-1.5 rounded px-3 py-1 font-sans text-[11px] font-medium transition-colors ${
               outlineGenerated
@@ -282,6 +290,24 @@ export default function Course() {
           >
             {outlineGenerated ? "Outline Generated" : "Generate Outline"}
           </button>
+          {outlineGenerated && (
+            <button
+              onClick={() => {
+                if (!lcGenerated) {
+                  setModalInitialStage(3);
+                  setShowOutlineModal(true);
+                }
+              }}
+              disabled={lcGenerated}
+              className={`flex items-center gap-1.5 rounded px-3 py-1 font-sans text-[11px] font-medium transition-colors ${
+                lcGenerated
+                  ? "cursor-default bg-[#2a2a2a] text-text-faint"
+                  : "cursor-pointer bg-white text-black hover:bg-gray-200"
+              }`}
+            >
+              {lcGenerated ? "Content Generated" : "Generate Learning Content"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -289,12 +315,18 @@ export default function Course() {
         <OutlineModal
           folderId={folderId}
           folderName={title}
+          initialStage={modalInitialStage}
           onClose={() => setShowOutlineModal(false)}
           onComplete={() => {
-            setOutlineGenerated(true);
-            getOutline(folderId).then((data) => {
-              if (data) setOutlineData(data);
-            });
+            if (modalInitialStage === 0) {
+              setOutlineGenerated(true);
+              setLcGenerated(true);
+              getOutline(folderId).then((data) => {
+                if (data) setOutlineData(data);
+              });
+            } else {
+              setLcGenerated(true);
+            }
           }}
         />
       )}
@@ -757,9 +789,10 @@ function OverviewTab({ topics, mastery, course }) {
 
 /* ---- Content Tab ---- */
 
-function ContentNode({ title, numbering, isTerminal, objectives, children, depth = 0 }) {
+function RecursiveContentNode({ node, numbering, depth = 0 }) {
   const [open, setOpen] = useState(depth < 1);
-  const hasChildren = children && children.length > 0;
+  const isGroup = node.type === "group";
+  const hasChildren = isGroup && node.children?.length > 0;
 
   return (
     <div>
@@ -767,7 +800,7 @@ function ContentNode({ title, numbering, isTerminal, objectives, children, depth
         onClick={() => setOpen((v) => !v)}
         className="group flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-[#2a2a2e]"
       >
-        {hasChildren ? (
+        {hasChildren || node.type === "content" ? (
           open ? <ChevronDown className="size-3.5 shrink-0 text-text-faint" /> : <ChevronRight className="size-3.5 shrink-0 text-text-faint" />
         ) : (
           <span className="inline-block size-3.5 shrink-0" />
@@ -782,27 +815,37 @@ function ContentNode({ title, numbering, isTerminal, objectives, children, depth
                 : "text-text-secondary"
           }`}
         >
-          {title}
+          {node.title}
         </span>
-        {isTerminal && objectives?.length > 0 && (
+        {node.type === "content" && node.objectives?.length > 0 && (
           <span className="shrink-0 rounded bg-[#232323] px-1.5 py-0.5 font-mono text-[9px] text-text-faint">
-            {objectives.length} objective{objectives.length !== 1 ? "s" : ""}
+            {node.objectives.length} objective{node.objectives.length !== 1 ? "s" : ""}
           </span>
         )}
       </button>
       {open && (
         <div className={depth === 0 ? "ml-5" : "ml-6 border-l border-[#232323] pl-1"}>
-          {isTerminal && objectives?.length > 0 && (
+          {node.type === "content" && node.objectives?.length > 0 && (
             <ul className="flex flex-col gap-0.5 px-3 py-1.5">
-              {objectives.map((o, i) => (
+              {node.objectives.map((o, i) => (
                 <li key={i} className="flex items-start gap-1.5">
                   <span className="mt-[5px] size-1 shrink-0 rounded-full bg-accent-blue" />
-                  <span className="font-sans text-[11px] leading-[16px] text-text-secondary">{o}</span>
+                  <span className="font-sans text-[11px] leading-[16px] text-text-secondary">
+                    {o.objective || o}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
-          {hasChildren && children}
+          {hasChildren &&
+            node.children.map((child, i) => (
+              <RecursiveContentNode
+                key={child.id || i}
+                node={child}
+                numbering={`${numbering}.${i + 1}`}
+                depth={depth + 1}
+              />
+            ))}
         </div>
       )}
     </div>
@@ -810,7 +853,8 @@ function ContentNode({ title, numbering, isTerminal, objectives, children, depth
 }
 
 function ContentTab({ outline }) {
-  if (!outline || !outline.sections?.length) {
+  const roots = outline?.nodes || [];
+  if (!roots.length) {
     return (
       <p className="py-12 text-center font-sans text-[13px] text-text-faint">
         No outline generated yet. Generate one to see the course content structure.
@@ -820,37 +864,8 @@ function ContentTab({ outline }) {
 
   return (
     <div className="flex flex-col gap-0.5">
-      {outline.sections.map((section, i) => (
-        <ContentNode
-          key={section.id || i}
-          title={section.title}
-          numbering={`${i + 1}`}
-          isTerminal={!!section.content}
-          objectives={section.objectives}
-          depth={0}
-        >
-          {section.subsections?.map((sub, j) => (
-            <ContentNode
-              key={sub.id || j}
-              title={sub.title}
-              numbering={`${i + 1}.${j + 1}`}
-              isTerminal={!!sub.content}
-              objectives={sub.objectives}
-              depth={1}
-            >
-              {sub.topics?.map((topic, k) => (
-                <ContentNode
-                  key={topic.id || k}
-                  title={topic.title}
-                  numbering={`${i + 1}.${j + 1}.${k + 1}`}
-                  isTerminal={!!topic.content}
-                  objectives={topic.objectives}
-                  depth={2}
-                />
-              ))}
-            </ContentNode>
-          ))}
-        </ContentNode>
+      {roots.map((node, i) => (
+        <RecursiveContentNode key={node.id || i} node={node} numbering={`${i + 1}`} depth={0} />
       ))}
     </div>
   );

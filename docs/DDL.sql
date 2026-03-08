@@ -845,7 +845,79 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
 -- ============================================================================
--- 30. SUPABASE REALTIME
+-- 30. OUTLINE & LEARNING CONTENT TABLES
+-- ============================================================================
+
+CREATE TABLE groups (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent     UUID REFERENCES groups(id) ON DELETE CASCADE,
+  folder_id  UUID NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+  title      TEXT NOT NULL,
+  "order"    INT NOT NULL DEFAULT 0,
+  progress   FLOAT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_groups_parent ON groups(parent);
+CREATE INDEX idx_groups_folder ON groups(folder_id);
+
+CREATE TABLE content_nodes (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent            UUID REFERENCES groups(id) ON DELETE CASCADE,
+  folder_id         UUID NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+  title             TEXT NOT NULL,
+  "order"           INT NOT NULL DEFAULT 0,
+  concept_tags      TEXT[] DEFAULT '{}',
+  learning_guidance TEXT,
+  practice_guidance TEXT,
+  created_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_content_nodes_parent ON content_nodes(parent);
+CREATE INDEX idx_content_nodes_folder ON content_nodes(folder_id);
+
+CREATE TABLE objectives (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content_node UUID NOT NULL REFERENCES content_nodes(id) ON DELETE CASCADE,
+  objective    TEXT NOT NULL,
+  weight       INT NOT NULL DEFAULT 5 CHECK (weight BETWEEN 0 AND 10)
+);
+
+CREATE INDEX idx_objectives_content_node ON objectives(content_node);
+
+CREATE TABLE phases (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content_node           UUID NOT NULL REFERENCES content_nodes(id) ON DELETE CASCADE,
+  title                  TEXT NOT NULL,
+  content                TEXT NOT NULL DEFAULT '',
+  estimated_time_minutes INT NOT NULL DEFAULT 5,
+  "order"                INT NOT NULL DEFAULT 0,
+  created_at             TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_phases_content_node ON phases(content_node);
+
+CREATE TABLE checkpoints (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phase      UUID NOT NULL REFERENCES phases(id) ON DELETE CASCADE,
+  question   TEXT NOT NULL,
+  difficulty INT NOT NULL DEFAULT 5 CHECK (difficulty BETWEEN 0 AND 10)
+);
+
+CREATE INDEX idx_checkpoints_phase ON checkpoints(phase);
+
+CREATE TABLE options (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  checkpoint  UUID NOT NULL REFERENCES checkpoints(id) ON DELETE CASCADE,
+  text        TEXT NOT NULL,
+  correct     BOOLEAN NOT NULL DEFAULT FALSE,
+  explanation TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX idx_options_checkpoint ON options(checkpoint);
+
+-- ============================================================================
+-- 31. SUPABASE REALTIME
 -- ============================================================================
 -- Enable realtime for tables that push live updates to the frontend.
 

@@ -1,4 +1,4 @@
-import { runContentPipeline } from "../services/contentService.js";
+import { runContentPipeline } from "../services/learning-content-generation.js";
 
 export async function generateContent(req, res) {
   const { folder_id } = req.body;
