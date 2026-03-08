@@ -73,15 +73,15 @@ function StatCard({ icon: Icon, label, value, sub, color = "text-text-primary" }
 
 // ── Mastery bar ────────────────────────────────────────────────────────────
 function MasteryBar({ known, unknown, total }) {
-  const knownPct   = total ? Math.round((known   / total) * 100) : 0;
-  const unknownPct = total ? Math.round((unknown / total) * 100) : 0;
-  const unreviewed = 100 - knownPct - unknownPct;
+  const reviewed = known + unknown;
+  const knownPct   = reviewed ? Math.round((known   / reviewed) * 100) : 0;
+  const unknownPct = reviewed ? Math.round((unknown / reviewed) * 100) : 0;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex h-3 w-full overflow-hidden rounded-full bg-bg-elevated">
         <div className="h-full bg-accent-green transition-all" style={{ width: `${knownPct}%` }} />
         <div className="h-full bg-red-400    transition-all" style={{ width: `${unknownPct}%` }} />
-        <div className="h-full bg-[#333]     transition-all" style={{ width: `${unreviewed}%` }} />
+
       </div>
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
@@ -94,7 +94,7 @@ function MasteryBar({ known, unknown, total }) {
         </div>
         <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-[#444]" />
-          <span className="font-sans text-[11px] text-text-secondary">{unreviewed}% unreviewed</span>
+
         </div>
       </div>
     </div>
@@ -230,7 +230,7 @@ export default function Progress() {
               <Layers className="size-4 text-accent-blue" />
               <span className="font-sans text-[13px] font-semibold text-text-primary">Flashcard Mastery</span>
               {totalTerms > 0 && (
-                <span className="font-mono text-[10px] text-text-faint ml-auto">{reviewedCount} of {totalTerms} reviewed</span>
+                <span className="font-mono text-[10px] text-text-faint ml-auto">{reviewedCount} cards reviewed</span>
               )}
             </div>
 
