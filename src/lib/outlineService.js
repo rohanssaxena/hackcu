@@ -101,6 +101,69 @@ export async function getOutline(folderId) {
 }
 
 /**
+ * Fetch a single content node with all its phases, checkpoints, and options.
+ */
+export async function getContentNodeWithPhases(contentNodeId) {
+  const { data: node, error: nodeErr } = await supabase
+    .from("content_nodes")
+    .select("id, title")
+    .eq("id", contentNodeId)
+    .single();
+
+  if (nodeErr) throw new Error(nodeErr.message);
+
+  const { data: phases, error: phaseErr } = await supabase
+    .from("phases")
+    .select("id, title, content, estimated_time_minutes, order")
+    .eq("content_node", contentNodeId)
+    .order("order");
+
+  if (phaseErr) throw new Error(phaseErr.message);
+
+  const phaseIds = phases.map((p) => p.id);
+  let checkpoints = [];
+  if (phaseIds.length) {
+    const { data, error } = await supabase
+      .from("checkpoints")
+      .select("id, phase, question, difficulty")
+      .in("phase", phaseIds);
+    if (error) throw new Error(error.message);
+    checkpoints = data || [];
+  }
+
+  const checkpointIds = checkpoints.map((c) => c.id);
+  let options = [];
+  if (checkpointIds.length) {
+    const { data, error } = await supabase
+      .from("options")
+      .select("id, checkpoint, text, correct, explanation")
+      .in("checkpoint", checkpointIds);
+    if (error) throw new Error(error.message);
+    options = data || [];
+  }
+
+  const optMap = new Map();
+  for (const o of options) {
+    if (!optMap.has(o.checkpoint)) optMap.set(o.checkpoint, []);
+    optMap.get(o.checkpoint).push(o);
+  }
+
+  const cpMap = new Map();
+  for (const c of checkpoints) {
+    if (!cpMap.has(c.phase)) cpMap.set(c.phase, []);
+    cpMap.get(c.phase).push({ ...c, options: optMap.get(c.id) || [] });
+  }
+
+  return {
+    ...node,
+    phases: phases.map((p) => ({
+      ...p,
+      checkpoints: cpMap.get(p.id) || [],
+    })),
+  };
+}
+
+/**
  * Call the server-side outline generation pipeline.
  */
 export async function requestOutlineGeneration(folderId) {

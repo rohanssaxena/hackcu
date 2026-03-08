@@ -1,17 +1,9 @@
-import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
 import { getSupabase } from "../utils/supabase.js";
-import { getAnthropic } from "../utils/anthropic.js";
+import { callLLM, loadPrompt, loadSchema } from "../utils/llm.js";
 import { extractFolderText } from "./extract.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = resolve(__dirname, "../../../prompts");
-
-const systemPrompt = readFileSync(resolve(PROMPTS_DIR, "outline-generation.md"), "utf-8");
-const outputSchema = JSON.parse(
-  readFileSync(resolve(PROMPTS_DIR, "outline-generation-schema.json"), "utf-8"),
-);
+const systemPrompt = loadPrompt("outline-generation.md");
+const outputSchema = loadSchema("outline-generation-schema.json");
 
 const MAX_CONTENT_CHARS = 120_000;
 
@@ -29,32 +21,17 @@ function buildFileContents(files) {
   return combined;
 }
 
-async function callLLM(anthropic, folderName, files) {
+async function generateOutline(folderName, files) {
   const fileContents = buildFileContents(files);
 
-  const userMessage =
-    `Generate a structured academic course outline for "${folderName}" ` +
-    `based on the following study materials:\n\n${fileContents}`;
-
-  const message = await anthropic.messages.create({
+  return callLLM({
     model: "claude-sonnet-4-5-20250929",
-    max_tokens: 16384,
-    messages: [{ role: "user", content: userMessage }],
     system: systemPrompt,
-    output_config: {
-      format: {
-        type: "json_schema",
-        schema: outputSchema,
-      },
-    },
+    user:
+      `Generate a structured academic course outline for "${folderName}" ` +
+      `based on the following study materials:\n\n${fileContents}`,
+    schema: outputSchema,
   });
-
-  const text = message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("");
-
-  return JSON.parse(text);
 }
 
 async function insertNode(supabase, folderId, parentGroupId, node, orderIndex) {
@@ -114,7 +91,6 @@ async function persistOutline(supabase, folderId, outline) {
 
 export async function runOutlinePipeline(folderId) {
   const supabase = getSupabase();
-  const anthropic = getAnthropic();
 
   const { data: folder, error: folderErr } = await supabase
     .from("folders")
@@ -136,7 +112,7 @@ export async function runOutlinePipeline(folderId) {
   const extracted = await extractFolderText(supabase, files);
   if (!extracted.length) throw new Error("Could not extract text from any files");
 
-  const outline = await callLLM(anthropic, folder.name, extracted);
+  const outline = await generateOutline(folder.name, extracted);
 
   await persistOutline(supabase, folderId, outline);
 

@@ -1,14 +1,14 @@
-# Generate Learning Content for a Single Topic
+# Generate Learning Content for Multiple Topics
 
-You are generating **phased learning content** for one content node from a course outline.
+You are generating **phased learning content** for multiple content nodes from a course outline in a single pass.
 
-You will receive:
+You will receive a numbered list of topics, each with:
 - **Topic title**
 - **Objectives** (with importance weights)
 - **Learning guidance** — what the learner should be able to do
 - **Practice guidance** — what kinds of practice questions to create
 
-Produce a sequence of **phases** that teach the topic progressively.
+For **each topic**, produce a sequence of **phases** that teach it progressively.
 
 ---
 
@@ -46,9 +46,10 @@ Distractors must be **plausible but clearly wrong**.
 
 1. Return **only JSON** conforming to the provided schema.
 2. No commentary, explanations, or markdown outside the JSON.
-3. Cover **all provided objectives** across your phases. Higher-weight objectives deserve more depth.
+3. Cover **all provided objectives** across your phases for each topic. Higher-weight objectives deserve more depth.
 4. Explain concepts **intuitively first**, then formalize with definitions, formulas, or worked examples.
-5. The `topic` field in your output **must exactly match** the input topic title.
+5. Each entry's `topic` field **must exactly match** the corresponding input topic title.
+6. Generate content for **every** topic provided — do not skip any.
 
 ---
 
@@ -56,26 +57,30 @@ Distractors must be **plausible but clearly wrong**.
 
 ```json
 {
-  "topic": "Evaluating Limits from Graphs",
-  "phases": [
+  "topics": [
     {
-      "title": "What Is a Limit?",
-      "content": "# What Is a Limit?\n\nA **limit** describes the value a function *approaches* as the input gets closer to some number...",
-      "estimated_time_minutes": 5,
-      "checks": [
+      "topic": "Evaluating Limits from Graphs",
+      "phases": [
         {
-          "question": "A function f(x) has f(2) = 5 but the limit as x→2 is 3. What does this tell you?",
-          "difficulty": 3,
-          "options": [
+          "title": "What Is a Limit?",
+          "content": "# What Is a Limit?\n\nA **limit** describes the value a function *approaches* as the input gets closer to some number...",
+          "estimated_time_minutes": 5,
+          "checks": [
             {
-              "text": "The function's value and its limit at a point can differ",
-              "correct": true,
-              "explanation": "Limits describe approach behavior, not the actual value, so they can differ."
-            },
-            {
-              "text": "The limit does not exist at x = 2",
-              "correct": false,
-              "explanation": "The limit does exist (it's 3); it just doesn't equal f(2)."
+              "question": "A function f(x) has f(2) = 5 but the limit as x→2 is 3. What does this tell you?",
+              "difficulty": 3,
+              "options": [
+                {
+                  "text": "The function's value and its limit at a point can differ",
+                  "correct": true,
+                  "explanation": "Limits describe approach behavior, not the actual value, so they can differ."
+                },
+                {
+                  "text": "The limit does not exist at x = 2",
+                  "correct": false,
+                  "explanation": "The limit does exist (it's 3); it just doesn't equal f(2)."
+                }
+              ]
             }
           ]
         }

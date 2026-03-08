@@ -82,6 +82,29 @@ body,
   100% { background-position: -100% 0; }
 }
 
+/* Learn page markdown prose */
+.learn-prose h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 0.75rem; color: var(--color-text-primary); }
+.learn-prose h2 { font-size: 1.2rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: var(--color-text-primary); }
+.learn-prose h3 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.4rem; color: var(--color-text-primary); }
+.learn-prose h4 { font-size: 0.95rem; font-weight: 600; margin: 0.75rem 0 0.3rem; color: var(--color-text-secondary); }
+.learn-prose p { font-size: 0.85rem; line-height: 1.7; margin: 0 0 0.75rem; color: var(--color-text-secondary); }
+.learn-prose ul, .learn-prose ol { font-size: 0.85rem; line-height: 1.7; margin: 0 0 0.75rem; padding-left: 1.5rem; color: var(--color-text-secondary); }
+.learn-prose li { margin-bottom: 0.25rem; }
+.learn-prose ol { list-style: decimal; }
+.learn-prose ul { list-style: disc; }
+.learn-prose strong { color: var(--color-text-primary); font-weight: 600; }
+.learn-prose em { font-style: italic; }
+.learn-prose code { font-family: var(--font-mono); font-size: 0.8rem; background: #1e1e1e; padding: 0.15rem 0.4rem; border-radius: 0.25rem; color: #e0a8ff; }
+.learn-prose pre { background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 0.5rem; padding: 1rem; margin: 0.75rem 0; overflow-x: auto; }
+.learn-prose pre code { background: transparent; padding: 0; color: var(--color-text-secondary); }
+.learn-prose blockquote { border-left: 3px solid var(--color-accent-blue); padding: 0.5rem 1rem; margin: 0.75rem 0; background: rgba(43,127,255,0.04); border-radius: 0 0.375rem 0.375rem 0; }
+.learn-prose blockquote p { margin: 0; color: var(--color-text-secondary); }
+.learn-prose hr { border: none; border-top: 1px solid #1e1e1e; margin: 1.5rem 0; }
+.learn-prose table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.85rem; }
+.learn-prose th, .learn-prose td { border: 1px solid #1e1e1e; padding: 0.5rem 0.75rem; text-align: left; }
+.learn-prose th { background: #111; color: var(--color-text-primary); font-weight: 600; }
+.learn-prose td { color: var(--color-text-secondary); }
+
 /* react-pdf overrides for dark theme */
 .react-pdf__Page {
   background: transparent !important;

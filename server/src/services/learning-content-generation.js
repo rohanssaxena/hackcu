@@ -1,73 +1,41 @@
-import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
 import { getSupabase } from "../utils/supabase.js";
-import { getAnthropic } from "../utils/anthropic.js";
+import { callLLM, loadPrompt, loadSchema } from "../utils/llm.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = resolve(__dirname, "../../../prompts");
+const systemPrompt = loadPrompt("learning-content-gen.md");
+const outputSchema = loadSchema("learning-content-schema.json");
 
-const systemPrompt = readFileSync(resolve(PROMPTS_DIR, "learning-content-gen.md"), "utf-8");
-const outputSchema = JSON.parse(
-  readFileSync(resolve(PROMPTS_DIR, "learning-content-schema.json"), "utf-8"),
-);
+async function generateAllContent(nodes) {
+  const topicList = nodes
+    .map((n, i) => {
+      const objs = (n.objectives || [])
+        .map((o) => `  - ${o.objective} (weight: ${o.weight})`)
+        .join("\n");
+      return (
+        `### ${i + 1}. ${n.title}\n` +
+        (objs ? `**Objectives:**\n${objs}\n` : "") +
+        `**Learning guidance:** ${n.learning_guidance || "N/A"}\n` +
+        `**Practice guidance:** ${n.practice_guidance || "N/A"}`
+      );
+    })
+    .join("\n\n");
 
-const MAX_RETRIES = 5;
-const BASE_DELAY_MS = 15_000;
-
-async function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+  return callLLM({
+    model: "claude-haiku-4-5-20251001",
+    system: systemPrompt,
+    user:
+      `Generate phased learning content for the following ${nodes.length} topics.\n\n` +
+      `${topicList}\n\n` +
+      `For each topic, produce phases with checkpoints as described in the system prompt. ` +
+      `Make sure each entry's \`topic\` matches the input title exactly.`,
+    schema: outputSchema,
+    maxTokens: 64000,
+    stream: true,
+  });
 }
 
-async function generateForNode(anthropic, node) {
-  const objectivesList = (node.objectives || [])
-    .map((o) => `  - ${o.objective} (weight: ${o.weight})`)
-    .join("\n");
-
-  const userMessage =
-    `Generate phased learning content for the following topic.\n\n` +
-    `**Topic:** ${node.title}\n\n` +
-    `**Objectives:**\n${objectivesList}\n\n` +
-    `**Learning guidance:** ${node.learning_guidance || "N/A"}\n\n` +
-    `**Practice guidance:** ${node.practice_guidance || "N/A"}\n\n` +
-    `Make sure the \`topic\` field in your output matches "${node.title}" exactly.`;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 16384,
-        messages: [{ role: "user", content: userMessage }],
-        system: systemPrompt,
-        output_config: {
-          format: {
-            type: "json_schema",
-            schema: outputSchema,
-          },
-        },
-      });
-
-      const text = message.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("");
-
-      return JSON.parse(text);
-    } catch (err) {
-      const isRateLimit = err.status === 429 || err.error?.type === "rate_limit_error";
-      if (!isRateLimit || attempt === MAX_RETRIES) throw err;
-
-      const retryAfter = err.headers?.["retry-after"];
-      const delayMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : BASE_DELAY_MS * (attempt + 1);
-      console.log(`Rate limited on "${node.title}", retry ${attempt + 1}/${MAX_RETRIES} in ${Math.round(delayMs / 1000)}s`);
-      await sleep(delayMs);
-    }
-  }
-}
-
-async function persistContentForNode(supabase, contentNodeId, result) {
-  for (let pi = 0; pi < (result.phases?.length || 0); pi++) {
-    const phase = result.phases[pi];
+async function persistContentForNode(supabase, contentNodeId, entry) {
+  for (let pi = 0; pi < (entry.phases?.length || 0); pi++) {
+    const phase = entry.phases[pi];
 
     const { data: phaseRow, error: phaseErr } = await supabase
       .from("phases")
@@ -121,7 +89,6 @@ async function collectContentNodes(supabase, folderId) {
   if (error) throw new Error(`Failed to fetch content nodes: ${error.message}`);
   if (!allNodes?.length) throw new Error("No content nodes found for this folder");
 
-  // Skip nodes that already have phases (idempotent re-runs)
   const allIds = allNodes.map((n) => n.id);
   const { data: existingPhases } = await supabase
     .from("phases")
@@ -155,43 +122,39 @@ async function collectContentNodes(supabase, folderId) {
 
 export async function runContentPipeline(folderId, onProgress) {
   const supabase = getSupabase();
-  const anthropic = getAnthropic();
 
   onProgress({ type: "status", step: "collect", message: "Collecting content nodes…" });
 
   const { all, pending } = await collectContentNodes(supabase, folderId);
-  const alreadyDone = all.length - pending.length;
 
   onProgress({
     type: "start",
     total: all.length,
-    nodes: all.map((n) => n.title),
-    alreadyDone,
+    pendingCount: pending.length,
   });
 
   if (!pending.length) {
     onProgress({ type: "status", step: "skip", message: "All content already generated." });
-  }
-
-  for (let i = 0; i < pending.length; i++) {
-    const node = pending[i];
-
+  } else {
     onProgress({
-      type: "node_start",
-      title: node.title,
-      index: alreadyDone + i,
-      total: all.length,
+      type: "status",
+      step: "generate",
+      message: `Generating content for ${pending.length} topic${pending.length !== 1 ? "s" : ""}…`,
     });
 
-    const result = await generateForNode(anthropic, node);
-    await persistContentForNode(supabase, node.id, result);
+    const result = await generateAllContent(pending);
+    const titleMap = new Map(pending.map((n) => [n.title, n]));
 
-    onProgress({
-      type: "node_complete",
-      title: node.title,
-      completed: alreadyDone + i + 1,
-      total: all.length,
-    });
+    onProgress({ type: "status", step: "store", message: "Storing phases…" });
+
+    for (const entry of result.topics || []) {
+      const node = titleMap.get(entry.topic);
+      if (!node) {
+        console.warn(`No matching DB node for "${entry.topic}", skipping`);
+        continue;
+      }
+      await persistContentForNode(supabase, node.id, entry);
+    }
   }
 
   await supabase
@@ -199,5 +162,5 @@ export async function runContentPipeline(folderId, onProgress) {
     .update({ lc_generated: true })
     .eq("id", folderId);
 
-  onProgress({ type: "complete", total: nodes.length });
+  onProgress({ type: "complete", total: all.length });
 }

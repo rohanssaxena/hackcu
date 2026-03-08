@@ -6,6 +6,7 @@ import AppLayout from "./layouts/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Workspace from "./pages/Workspace";
 import Course from "./pages/Course";
+import Learn from "./pages/Learn";
 import ComingSoon from "./pages/ComingSoon";
 
 createRoot(document.getElementById("root")).render(
@@ -16,6 +17,7 @@ createRoot(document.getElementById("root")).render(
           <Route path="/" element={<Dashboard />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/course/:courseName" element={<Course />} />
+          <Route path="/course/:courseName/learn/:contentNodeId" element={<Learn />} />
           <Route path="/progress" element={<ComingSoon />} />
           <Route path="/academics" element={<ComingSoon />} />
           <Route path="/review" element={<ComingSoon />} />

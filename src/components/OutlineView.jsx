@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronRight,
   ChevronDown,
@@ -11,6 +12,7 @@ import {
   Lightbulb,
   Dumbbell,
   Tag,
+  Play,
 } from "lucide-react";
 
 function countContentNodes(node) {
@@ -44,6 +46,8 @@ function WeightPips({ weight, max = 10 }) {
 
 function ContentNodeDetail({ node }) {
   const [showGuidance, setShowGuidance] = useState(false);
+  const navigate = useNavigate();
+  const { courseName } = useParams();
   const hasGuidance = node.learning_guidance || node.practice_guidance;
   const tags = node.concept_tags || [];
 
@@ -121,6 +125,22 @@ function ContentNodeDetail({ node }) {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Learn button */}
+      {node.id && courseName && (
+        <div className="pl-[18px] pt-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/course/${courseName}/learn/${node.id}`);
+            }}
+            className="flex cursor-pointer items-center gap-1.5 rounded-md bg-accent-blue/10 px-3 py-1.5 font-sans text-[11px] font-medium text-accent-blue transition-colors hover:bg-accent-blue/20"
+          >
+            <Play className="size-3" />
+            Learn
+          </button>
         </div>
       )}
     </div>

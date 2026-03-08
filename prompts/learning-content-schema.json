@@ -1,38 +1,48 @@
 {
   "type": "object",
-  "required": ["topic", "phases"],
+  "required": ["topics"],
   "additionalProperties": false,
   "properties": {
-    "topic": { "type": "string" },
-    "phases": {
+    "topics": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["title", "content", "estimated_time_minutes", "checks"],
+        "required": ["topic", "phases"],
         "additionalProperties": false,
         "properties": {
-          "title": { "type": "string" },
-          "content": { "type": "string" },
-          "estimated_time_minutes": { "type": "integer" },
-          "checks": {
+          "topic": { "type": "string" },
+          "phases": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["question", "difficulty", "options"],
+              "required": ["title", "content", "estimated_time_minutes", "checks"],
               "additionalProperties": false,
               "properties": {
-                "question": { "type": "string" },
-                "difficulty": { "type": "integer" },
-                "options": {
+                "title": { "type": "string" },
+                "content": { "type": "string" },
+                "estimated_time_minutes": { "type": "integer" },
+                "checks": {
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["text", "correct", "explanation"],
+                    "required": ["question", "difficulty", "options"],
                     "additionalProperties": false,
                     "properties": {
-                      "text": { "type": "string" },
-                      "correct": { "type": "boolean" },
-                      "explanation": { "type": "string" }
+                      "question": { "type": "string" },
+                      "difficulty": { "type": "integer" },
+                      "options": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": ["text", "correct", "explanation"],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": { "type": "string" },
+                            "correct": { "type": "boolean" },
+                            "explanation": { "type": "string" }
+                          }
+                        }
+                      }
                     }
                   }
                 }

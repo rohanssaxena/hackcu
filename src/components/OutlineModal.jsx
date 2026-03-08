@@ -104,9 +104,9 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
   const [outlineSubStep, setOutlineSubStep] = useState(0);
 
   // Stage 3 (content gen) state
-  const [contentNodes, setContentNodes] = useState([]);
-  const [contentCompleted, setContentCompleted] = useState(0);
+  const [contentSubStep, setContentSubStep] = useState(0); // 0=collect, 1=generate, 2=store, 3=done
   const [contentTotal, setContentTotal] = useState(0);
+  const [contentPending, setContentPending] = useState(0);
 
   const isProcessing = stage === 1 || stage === 3;
 
@@ -164,25 +164,26 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
   const handleContinueToContent = async () => {
     setStage(3);
     setError(null);
-    setContentCompleted(0);
+    setContentSubStep(0);
 
     try {
       await requestContentGeneration(folderId, (event) => {
         switch (event.type) {
           case "start":
-            setContentNodes(event.nodes || []);
             setContentTotal(event.total || 0);
-            setContentCompleted(event.alreadyDone || 0);
+            setContentPending(event.pendingCount ?? event.total ?? 0);
             break;
-          case "node_start":
-            break;
-          case "node_complete":
-            setContentCompleted(event.completed || 0);
+          case "status":
+            if (event.step === "collect") setContentSubStep(0);
+            else if (event.step === "generate") setContentSubStep(1);
+            else if (event.step === "store") setContentSubStep(2);
+            else if (event.step === "skip") setContentSubStep(3);
             break;
           case "error":
             setError(event.error);
             break;
           case "complete":
+            setContentSubStep(3);
             break;
         }
       });
@@ -342,72 +343,29 @@ export default function OutlineModal({ folderId, folderName, onClose, onComplete
               </div>
             )}
 
-            {/* Stage 3: Content generation — per-node progress */}
+            {/* Stage 3: Content generation — single batched call */}
             {stage === 3 && (
-              <div className="flex flex-col gap-6">
-                <div className="flex flex-col items-center justify-center gap-6 py-6">
-                  <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="size-6 animate-spin text-accent-blue" />
-                    <span className="font-sans text-[13px] font-medium text-text-primary">
-                      Generating learning content
-                    </span>
-                    {contentTotal > 0 && (
-                      <span className="font-sans text-[12px] text-text-secondary">
-                        {contentCompleted} / {contentTotal} topics completed
-                      </span>
-                    )}
-                  </div>
-
-                  {contentTotal > 0 && (
-                    <div className="w-full max-w-xs">
-                      <div className="flex h-2 overflow-hidden rounded-full bg-[#232323]">
-                        <div
-                          className="h-full rounded-full bg-accent-blue transition-all duration-300"
-                          style={{ width: `${Math.round((contentCompleted / contentTotal) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
+              <div className="flex flex-col items-center justify-center gap-8 py-12">
+                <div className="flex flex-col gap-4">
+                  <SubStepRow
+                    label="Collecting content nodes from outline"
+                    status={contentSubStep > 0 ? "done" : contentSubStep === 0 ? "active" : "pending"}
+                  />
+                  <SubStepRow
+                    label={`Generating learning content${contentPending > 0 ? ` for ${contentPending} topic${contentPending !== 1 ? "s" : ""}` : ""}`}
+                    status={contentSubStep > 1 ? "done" : contentSubStep === 1 ? "active" : "pending"}
+                  />
+                  <SubStepRow
+                    label="Storing phases and checkpoints"
+                    status={contentSubStep > 2 ? "done" : contentSubStep === 2 ? "active" : "pending"}
+                  />
                 </div>
-
-                {contentNodes.length > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <p className="font-sans text-[12px] text-text-secondary">
-                      Topics ({contentNodes.length}):
-                    </p>
-                    <div className="flex flex-col rounded-md border border-border-default">
-                      {contentNodes.map((title, i) => {
-                        const isDone = i < contentCompleted;
-                        const isActive = i === contentCompleted && contentCompleted < contentTotal;
-                        return (
-                          <div
-                            key={i}
-                            className={`flex items-center gap-3 px-3 py-2 ${
-                              i > 0 ? "border-t border-border-default" : ""
-                            }`}
-                          >
-                            {isDone && <CheckCircle2 className="size-3.5 shrink-0 text-accent-green" />}
-                            {isActive && <Loader2 className="size-3.5 shrink-0 animate-spin text-accent-blue" />}
-                            {!isDone && !isActive && <Circle className="size-3 shrink-0 text-[#333]" />}
-                            <span
-                              className={`font-sans text-[13px] ${
-                                isDone
-                                  ? "text-text-secondary"
-                                  : isActive
-                                    ? "font-medium text-text-primary"
-                                    : "text-text-faint"
-                              }`}
-                            >
-                              {title}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                {contentTotal > 0 && (
+                  <span className="font-sans text-[11px] text-text-faint">
+                    {contentTotal} topic{contentTotal !== 1 ? "s" : ""} total
+                  </span>
                 )}
-
-                {error && <p className="mt-2 font-sans text-[12px] text-red-400">{error}</p>}
+                {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
               </div>
             )}
 
