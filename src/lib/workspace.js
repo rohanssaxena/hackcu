@@ -26,6 +26,8 @@ export async function fetchFolderTree() {
       name: f.name,
       type: "folder",
       modified: formatRelative(f.last_accessed_at || f.updated_at),
+      outline_generated: !!f.outline_generated,
+      lc_generated: !!f.lc_generated,
       children: [],
     });
   }
@@ -251,6 +253,20 @@ export async function downloadFile(fileId, filename) {
 }
 
 /**
+ * Delete a folder (and its children via CASCADE).
+ */
+export async function deleteFolder(folderId) {
+  const { error } = await supabase
+    .from("folders")
+    .delete()
+    .eq("id", folderId)
+    .eq("user_id", USER_ID);
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+/**
  * Delete a file from storage and the database.
  */
 export async function deleteFile(fileId) {
@@ -268,6 +284,20 @@ export async function deleteFile(fileId) {
     .from("course_files")
     .delete()
     .eq("id", fileId);
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Rename a folder.
+ */
+export async function renameFolder(folderId, newName) {
+  const { error } = await supabase
+    .from("folders")
+    .update({ name: newName })
+    .eq("id", folderId)
+    .eq("user_id", USER_ID);
 
   if (error) return { error: error.message };
   return { ok: true };

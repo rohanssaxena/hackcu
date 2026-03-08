@@ -12,7 +12,7 @@ import {
   Layers,
   ArrowRight,
   ArrowLeft,
-  Map,
+  Map as MapIcon,
   ListOrdered,
   MoreHorizontal,
   Download,
@@ -24,12 +24,15 @@ import {
   Filter,
 } from "lucide-react";
 import { supabase, USER_ID } from "../lib/supabase";
+import { renameFolder } from "../lib/workspace";
 import FileViewer from "../components/FileViewer";
 import OutlineModal from "../components/OutlineModal";
 import OutlineView from "../components/OutlineView";
+import PracticeExamModal from "../components/PracticeExamModal";
 import { getOutline } from "../lib/outlineService";
 
-const TABS = ["Overview", "Content", "Files", "Outline", "About"];
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "";
+const TABS = ["Overview", "Files", "Outline", "About"];
 
 export default function Course() {
   const { folderId } = useParams();
@@ -51,6 +54,23 @@ export default function Course() {
   const [showOutlineModal, setShowOutlineModal] = useState(false);
   const [modalInitialStage, setModalInitialStage] = useState(0);
   const [outlineData, setOutlineData] = useState(null);
+  const [showRenameDropdown, setShowRenameDropdown] = useState(false);
+  const [showRenameInput, setShowRenameInput] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [showPracticeModal, setShowPracticeModal] = useState(false);
+  const [practiceExams, setPracticeExams] = useState([]);
+  const [practiceAttempts, setPracticeAttempts] = useState(new Map());
+  const renameDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (renameDropdownRef.current && !renameDropdownRef.current.contains(e.target)) {
+        setShowRenameDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   useEffect(() => {
     if (!folderId) {
@@ -80,7 +100,7 @@ export default function Course() {
         });
       }
 
-      const [filesRes, examRes] = await Promise.all([
+      const [filesRes, examRes, practiceApiRes] = await Promise.all([
         supabase
           .from("course_files")
           .select("*")
@@ -93,9 +113,20 @@ export default function Course() {
           .gte("exam_date", new Date().toISOString())
           .order("exam_date")
           .limit(1),
+        fetch(`${SERVER_URL}/api/practice/list`)
+          .then((r) => (r.ok ? r.json() : { exams: [], attempts: [] }))
+          .catch(() => ({ exams: [], attempts: [] })),
       ]);
 
       if (examRes.data?.[0]) setExam(examRes.data[0]);
+      const practiceData = practiceApiRes.exams || [];
+      setPracticeExams(practiceData);
+
+      const latestByExam = new Map();
+      for (const a of practiceApiRes.attempts || []) {
+        if (!latestByExam.has(a.exam_id)) latestByExam.set(a.exam_id, a);
+      }
+      setPracticeAttempts(latestByExam);
 
       if (filesRes.data?.length) {
         const fileTree = filesRes.data.map((f) => ({
@@ -119,6 +150,23 @@ export default function Course() {
         <span className="font-sans text-[13px] text-text-faint">
           Loading course…
         </span>
+      </div>
+    );
+  }
+
+  if (!folder) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8">
+        <p className="font-sans text-[14px] text-text-secondary">
+          Course not found or you don&apos;t have access to it.
+        </p>
+        <button
+          onClick={() => navigate("/workspace")}
+          className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-4 py-1.5 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110"
+        >
+          <ArrowLeft className="size-3.5" />
+          Back to workspace
+        </button>
       </div>
     );
   }
@@ -182,25 +230,125 @@ export default function Course() {
             {outlineGenerated ? "Outline Generated" : "Generate Outline"}
           </button>
           {outlineGenerated && (
-            <button
-              onClick={() => {
-                if (!lcGenerated) {
-                  setModalInitialStage(3);
-                  setShowOutlineModal(true);
-                }
-              }}
-              disabled={lcGenerated}
-              className={`flex items-center gap-1.5 rounded px-3 py-1 font-sans text-[11px] font-medium transition-colors ${
-                lcGenerated
-                  ? "cursor-default bg-[#2a2a2a] text-text-faint"
-                  : "cursor-pointer bg-white text-black hover:bg-gray-200"
-              }`}
-            >
-              {lcGenerated ? "Content Generated" : "Generate Learning Content"}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  if (!lcGenerated) {
+                    setModalInitialStage(3);
+                    setShowOutlineModal(true);
+                  }
+                }}
+                disabled={lcGenerated}
+                className={`flex items-center gap-1.5 rounded px-3 py-1 font-sans text-[11px] font-medium transition-colors ${
+                  lcGenerated
+                    ? "cursor-default bg-[#2a2a2a] text-text-faint"
+                    : "cursor-pointer bg-white text-black hover:bg-gray-200"
+                }`}
+              >
+                {lcGenerated ? "Content Generated" : "Generate Learning Content"}
+              </button>
+              {lcGenerated && (
+                <div ref={renameDropdownRef} className="relative">
+                  <button
+                    onClick={() => setShowRenameDropdown((v) => !v)}
+                    className="flex cursor-pointer items-center justify-center rounded p-1 text-text-faint transition-colors hover:bg-[#2a2a2a] hover:text-text-primary"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                  {showRenameDropdown && (
+                    <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-md border border-border-default bg-[#1e1e1e] py-1 shadow-lg">
+                      <button
+                        onClick={() => {
+                          setShowRenameDropdown(false);
+                          setShowRenameInput(true);
+                          setRenameValue(folder?.name || "");
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 font-sans text-[12px] text-text-primary transition-colors hover:bg-[#2a2a2a]"
+                      >
+                        <Pencil className="size-3" />
+                        Rename folder
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
+
+      {showRenameInput && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="flex flex-col gap-3 rounded-lg border border-border-default bg-bg-sidebar p-4 shadow-xl">
+            <span className="font-sans text-[13px] font-medium text-text-primary">
+              Rename folder
+            </span>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const trimmed = renameValue.trim();
+                  if (trimmed && folderId) {
+                    renameFolder(folderId, trimmed).then((r) => {
+                      if (!r.error) {
+                        setFolder((f) => (f ? { ...f, name: trimmed } : null));
+                        setShowRenameInput(false);
+                      }
+                    });
+                  }
+                }
+                if (e.key === "Escape") setShowRenameInput(false);
+              }}
+              className="rounded border border-border-default bg-[#111] px-3 py-2 font-sans text-[13px] text-text-primary outline-none focus:border-accent-blue"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowRenameInput(false)}
+                className="cursor-pointer rounded px-3 py-1 font-sans text-[12px] text-text-secondary hover:text-text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const trimmed = renameValue.trim();
+                  if (trimmed && folderId) {
+                    renameFolder(folderId, trimmed).then((r) => {
+                      if (!r.error) {
+                        setFolder((f) => (f ? { ...f, name: trimmed } : null));
+                        setShowRenameInput(false);
+                      }
+                    });
+                  }
+                }}
+                className="cursor-pointer rounded bg-accent-blue px-3 py-1 font-sans text-[12px] font-medium text-white hover:brightness-110"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPracticeModal && folderId && (
+        <PracticeExamModal
+          folderId={folderId}
+          onClose={() => setShowPracticeModal(false)}
+          onCreated={async () => {
+            const res = await fetch(`${SERVER_URL}/api/practice/list`);
+            if (res.ok) {
+              const { exams, attempts } = await res.json();
+              setPracticeExams(exams || []);
+              const latestByExam = new Map();
+              for (const a of attempts || []) {
+                if (!latestByExam.has(a.exam_id)) latestByExam.set(a.exam_id, a);
+              }
+              setPracticeAttempts(latestByExam);
+            }
+          }}
+        />
+      )}
 
       {showOutlineModal && folderId && (
         <OutlineModal
@@ -226,10 +374,7 @@ export default function Course() {
       <div className="flex flex-1 gap-10 pb-8">
         <div className="min-w-0 flex-1">
           {activeTab === "Overview" && (
-            <OverviewTab topics={topics} mastery={mastery} folder={folder} outline={outlineData} />
-          )}
-          {activeTab === "Content" && (
-            <ContentTab outline={outlineData} />
+            <OverviewTab folder={folder} folderId={folderId} outline={outlineData} navigate={navigate} />
           )}
           {activeTab === "Files" && <FilesTab files={files} />}
           {activeTab === "Outline" && (
@@ -251,6 +396,13 @@ export default function Course() {
             activities={activities}
             topics={topics}
             mastery={mastery}
+            folder={folder}
+            folderId={folderId}
+            onFolderUpdate={setFolder}
+            practiceExams={practiceExams}
+            practiceAttempts={practiceAttempts}
+            lcGenerated={lcGenerated}
+            onOpenPracticeModal={() => setShowPracticeModal(true)}
           />
         </div>
       </div>
@@ -286,7 +438,38 @@ function mapFileType(dbType) {
 
 /* ---- Side Panel Cards ---- */
 
-function SidePanelCards({ exam, studySets, activities, topics, mastery }) {
+function SidePanelCards({
+  exam,
+  studySets,
+  activities,
+  topics,
+  mastery,
+  folder,
+  folderId,
+  onFolderUpdate,
+  practiceExams = [],
+  practiceAttempts = new Map(),
+  lcGenerated = false,
+  onOpenPracticeModal,
+}) {
+  const navigate = useNavigate();
+  const [editingExamDate, setEditingExamDate] = useState(false);
+  const [examDateValue, setExamDateValue] = useState("");
+
+  const handleSaveExamDate = async () => {
+    if (!folderId || !onFolderUpdate) return;
+    const date = examDateValue ? new Date(examDateValue).toISOString() : null;
+    const { error } = await supabase
+      .from("folders")
+      .update({ exam_date: date })
+      .eq("id", folderId)
+      .eq("user_id", USER_ID);
+    if (!error) {
+      onFolderUpdate((f) => (f ? { ...f, exam_date: date } : null));
+      setEditingExamDate(false);
+    }
+  };
+
   const readiness = exam?.scope_topic_ids?.length
     ? Math.round(
         (exam.scope_topic_ids.reduce(
@@ -306,6 +489,134 @@ function SidePanelCards({ exam, studySets, activities, topics, mastery }) {
 
   return (
     <>
+      {lcGenerated && folderId && onOpenPracticeModal && (
+        <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
+          <div className="flex items-center gap-2 border-b border-border-default pb-2">
+            <ListOrdered className="size-3.5 text-text-muted" />
+            <span className="font-sans text-[11px] font-medium text-text-muted">
+              Practice
+            </span>
+          </div>
+          <button
+            onClick={onOpenPracticeModal}
+            className="flex cursor-pointer items-center justify-center gap-1.5 rounded bg-accent-blue px-3 py-2 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110"
+          >
+            Generate practice exam
+          </button>
+        </div>
+      )}
+
+      {folderId && (
+        <div className="flex flex-col gap-3 rounded border border-[#393939] px-4 py-3">
+          <div className="flex items-center gap-2 border-b border-border-default pb-2">
+            <Layers className="size-3.5 text-text-muted" />
+            <span className="font-sans text-[11px] font-medium text-text-muted">
+              Practice Exams
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {practiceExams.length === 0 ? (
+              <p className="font-sans text-[12px] text-text-faint">
+                No practice exams yet
+              </p>
+            ) : (
+              practiceExams.map((pe) => {
+                const count = pe.settings?.question_count ?? "?";
+                const attempt = practiceAttempts.get(pe.id);
+                const pct = attempt && attempt.total > 0
+                  ? Math.round((attempt.score / attempt.total) * 100)
+                  : 0;
+                const status = attempt
+                  ? `Completed ${pct}%`
+                  : "Not started";
+                return (
+                  <button
+                    key={pe.id}
+                    onClick={() => navigate(`/course/${pe.folder_id}/practice/${pe.id}`)}
+                    className="group/set -mx-2 flex cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-[#2e2e30]"
+                  >
+                    <span className="font-sans text-[12px] font-medium text-text-primary">
+                      {pe.title}
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-sans text-[10px] text-text-secondary">
+                        {count} questions
+                      </span>
+                      <span className="font-sans text-[10px] text-accent-blue opacity-0 transition-opacity group-hover/set:opacity-100">
+                        {attempt ? "Retake" : "Start"}
+                      </span>
+                    </div>
+                    <div className="flex h-1 overflow-hidden rounded-full bg-bg-elevated">
+                      <div
+                        className="h-full rounded-full bg-accent-blue"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="font-sans text-[10px] text-text-faint">
+                      {status}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {folder && folderId && (
+        <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
+          <div className="flex items-center gap-2 border-b border-border-default pb-2">
+            <Calendar className="size-3.5 text-text-muted" />
+            <span className="font-sans text-[11px] font-medium text-text-muted">
+              Exam Date
+            </span>
+          </div>
+          <div className="flex flex-col gap-2 pt-1">
+            {editingExamDate ? (
+              <>
+                <input
+                  type="datetime-local"
+                  value={examDateValue || ""}
+                  onChange={(e) => setExamDateValue(e.target.value)}
+                  className="rounded border border-border-default bg-[#111] px-2 py-1 font-sans text-[12px] text-text-primary outline-none focus:border-accent-blue"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingExamDate(false)}
+                    className="cursor-pointer font-sans text-[11px] text-text-secondary hover:text-text-primary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveExamDate}
+                    className="cursor-pointer font-sans text-[11px] font-medium text-accent-blue hover:underline"
+                  >
+                    Save
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => {
+                  const d = folder.exam_date ? new Date(folder.exam_date) : null;
+                  setExamDateValue(d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
+                  setEditingExamDate(true);
+                }}
+                className="text-left font-sans text-[13px] text-text-primary transition-colors hover:text-accent-blue"
+              >
+                {folder.exam_date
+                  ? new Date(folder.exam_date).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : "Add exam date"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {exam && (
         <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
           <div className="flex items-center gap-2 border-b border-border-default pb-2">
@@ -359,7 +670,7 @@ function SidePanelCards({ exam, studySets, activities, topics, mastery }) {
           <div className="flex items-center gap-2 border-b border-border-default pb-2">
             <Layers className="size-3.5 text-text-muted" />
             <span className="font-sans text-[11px] font-medium text-text-muted">
-              Sets
+              Study Sets
             </span>
           </div>
           <div className="flex flex-col gap-2">
@@ -437,12 +748,13 @@ function flattenOutlineNodes(nodes) {
   return out;
 }
 
-function OverviewTab({ topics, mastery, folder, outline }) {
+function OverviewTab({ folder, folderId, outline, navigate }) {
   const [mapView, setMapView] = useState("map");
 
   const outlineNodes = outline?.nodes || [];
   const flatNodes = flattenOutlineNodes(outlineNodes);
-  const contentCount = flatNodes.filter((n) => n.type === "content").length;
+  const contentNodes = flatNodes.filter((n) => n.type === "content");
+  const nextUp = contentNodes[0];
 
   const mindmapNodes = [];
   const rootX = 400;
@@ -471,44 +783,34 @@ function OverviewTab({ topics, mastery, folder, outline }) {
     });
   });
 
-  const linearOrder = flatNodes
-    .filter((n) => n.type === "content")
-    .map((n) => ({ id: n.id, label: n.label, status: "upcoming" }));
+  const linearOrder = contentNodes.map((n) => ({ id: n.id, label: n.label, status: "upcoming" }));
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="h-px bg-border-default" />
-
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          {
-            label: "Content Nodes",
-            value: contentCount,
-            sub: "topics",
-          },
-          { label: "Avg Mastery", value: "—", sub: "across topics" },
-          {
-            label: "Study Sets",
-            value: "0",
-            sub: "completed",
-          },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="flex flex-col items-center gap-1 rounded-lg border border-border-subtle bg-bg-elevated p-4"
-          >
-            <span className="font-mono text-2xl font-semibold text-text-primary">
-              {stat.value}
+      {nextUp && folderId && (
+        <div className="flex items-center gap-4 py-2">
+          <div className="flex size-9 items-center justify-center rounded bg-accent-blue/15">
+            <Play className="size-4 text-accent-blue" />
+          </div>
+          <div className="flex flex-1 flex-col">
+            <span className="font-sans text-[11px] font-medium uppercase tracking-wide text-text-faint">
+              Next Up
             </span>
-            <span className="font-sans text-[11px] text-text-secondary">
-              {stat.sub}
-            </span>
-            <span className="font-sans text-[10px] uppercase tracking-wide text-text-faint">
-              {stat.label}
+            <span className="font-sans text-[14px] font-medium text-text-primary">
+              {nextUp.label}
             </span>
           </div>
-        ))}
-      </div>
+          <button
+            onClick={() => navigate(`/course/${folderId}/learn/${nextUp.id}`)}
+            className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-4 py-1.5 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110"
+          >
+            Start
+            <ArrowRight className="size-3.5" />
+          </button>
+        </div>
+      )}
+
+      <div className="h-px bg-border-default" />
 
       <div className="flex flex-col gap-3">
         <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
@@ -524,7 +826,7 @@ function OverviewTab({ topics, mastery, folder, outline }) {
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              <Map className="size-3" />
+              <MapIcon className="size-3" />
               Map
             </button>
             <button
@@ -614,90 +916,6 @@ function OverviewTab({ topics, mastery, folder, outline }) {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ---- Content Tab ---- */
-
-function RecursiveContentNode({ node, numbering, depth = 0 }) {
-  const [open, setOpen] = useState(depth < 1);
-  const isGroup = node.type === "group";
-  const hasChildren = isGroup && node.children?.length > 0;
-
-  return (
-    <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="group flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-[#2a2a2e]"
-      >
-        {hasChildren || node.type === "content" ? (
-          open ? <ChevronDown className="size-3.5 shrink-0 text-text-faint" /> : <ChevronRight className="size-3.5 shrink-0 text-text-faint" />
-        ) : (
-          <span className="inline-block size-3.5 shrink-0" />
-        )}
-        <span className="font-mono text-[10px] text-text-faint">{numbering}</span>
-        <span
-          className={`flex-1 font-sans text-[13px] ${
-            depth === 0
-              ? "font-semibold text-text-primary"
-              : depth === 1
-                ? "font-medium text-text-primary"
-                : "text-text-secondary"
-          }`}
-        >
-          {node.title}
-        </span>
-        {node.type === "content" && node.objectives?.length > 0 && (
-          <span className="shrink-0 rounded bg-[#232323] px-1.5 py-0.5 font-mono text-[9px] text-text-faint">
-            {node.objectives.length} objective{node.objectives.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </button>
-      {open && (
-        <div className={depth === 0 ? "ml-5" : "ml-6 border-l border-[#232323] pl-1"}>
-          {node.type === "content" && node.objectives?.length > 0 && (
-            <ul className="flex flex-col gap-0.5 px-3 py-1.5">
-              {node.objectives.map((o, i) => (
-                <li key={i} className="flex items-start gap-1.5">
-                  <span className="mt-[5px] size-1 shrink-0 rounded-full bg-accent-blue" />
-                  <span className="font-sans text-[11px] leading-[16px] text-text-secondary">
-                    {o.objective || o}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {hasChildren &&
-            node.children.map((child, i) => (
-              <RecursiveContentNode
-                key={child.id || i}
-                node={child}
-                numbering={`${numbering}.${i + 1}`}
-                depth={depth + 1}
-              />
-            ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ContentTab({ outline }) {
-  const roots = outline?.nodes || [];
-  if (!roots.length) {
-    return (
-      <p className="py-12 text-center font-sans text-[13px] text-text-faint">
-        No outline generated yet. Generate one to see the course content structure.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-0.5">
-      {roots.map((node, i) => (
-        <RecursiveContentNode key={node.id || i} node={node} numbering={`${i + 1}`} depth={0} />
-      ))}
     </div>
   );
 }

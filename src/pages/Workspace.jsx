@@ -32,6 +32,7 @@ import {
   createFolder,
   downloadFile,
   deleteFile,
+  deleteFolder,
   renameFile,
 } from "../lib/workspace";
 import FileViewer from "../components/FileViewer";
@@ -54,7 +55,7 @@ export default function Workspace() {
   const { openTab } = useTabs();
   const [tree, setTree] = useState({ name: "My Workspace", children: [] });
   const [loading, setLoading] = useState(true);
-  const [path, setPath] = useState(["College", "Y1S2", "APPM 1360"]);
+  const [path, setPath] = useState([]);
   const [viewMode, setViewMode] = useState("list");
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [sortField, setSortField] = useState("name");
@@ -462,8 +463,10 @@ function FileContextMenu({ position, item, onClose, onOpen, onRefresh, onToast }
   };
 
   const handleDelete = async () => {
-    if (isFolder || !item.id) return onClose();
-    const result = await deleteFile(item.id);
+    if (!item.id) return onClose();
+    const result = isFolder
+      ? await deleteFolder(item.id)
+      : await deleteFile(item.id);
     if (result.error) { onToast?.(result.error, true); }
     else { onToast?.(`Deleted ${item.name}`); onRefresh?.(); }
     onClose();
@@ -509,7 +512,7 @@ function FileContextMenu({ position, item, onClose, onOpen, onRefresh, onToast }
     ...(!isFolder ? [{ label: "Download", Icon: Download, action: handleDownload }] : []),
     { divider: true },
     ...(!isFolder ? [{ label: "Rename", Icon: Pencil, action: () => setRenaming(true) }] : []),
-    ...(!isFolder ? [{ label: "Delete", Icon: Trash2, danger: true, action: handleDelete }] : []),
+    { label: "Delete", Icon: Trash2, danger: true, action: handleDelete },
     ...(!isFolder ? [{ divider: true }] : []),
     { label: "More Info", Icon: Info, action: () => { onToast?.(`${item.name} — ${item.size || "folder"}`); onClose(); } },
   ];
@@ -625,6 +628,20 @@ function FileRow({
           <span className="font-sans text-[13px] leading-[19.5px] text-text-primary group-hover:text-white">
             {item.name}
           </span>
+          {isFolder && (item.outline_generated || item.lc_generated) && (
+            <span className="flex items-center gap-1">
+              {item.outline_generated && (
+                <span className="rounded bg-accent-blue/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-blue">
+                  outline
+                </span>
+              )}
+              {item.lc_generated && (
+                <span className="rounded bg-accent-green/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-green">
+                  lesson plan
+                </span>
+              )}
+            </span>
+          )}
         </div>
         <span className="w-20 font-mono text-[11px] text-text-secondary">
           {item.size || ""}
@@ -663,6 +680,20 @@ function FileRow({
                   <span className="font-sans text-[13px] leading-[19.5px] text-text-primary">
                     {child.name}
                   </span>
+                  {isChildFolder && (child.outline_generated || child.lc_generated) && (
+                    <span className="flex items-center gap-1">
+                      {child.outline_generated && (
+                        <span className="rounded bg-accent-blue/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-blue">
+                          outline
+                        </span>
+                      )}
+                      {child.lc_generated && (
+                        <span className="rounded bg-accent-green/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-green">
+                          lesson plan
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
                 <span className="w-20 font-mono text-[11px] text-text-secondary">
                   {child.size || ""}
@@ -704,6 +735,20 @@ function FileCard({ item, onNavigate, onFileClick }) {
       <span className="w-full truncate text-center font-sans text-[12px] text-text-primary">
         {item.name}
       </span>
+      {isFolder && (item.outline_generated || item.lc_generated) && (
+        <span className="flex flex-wrap justify-center gap-1">
+          {item.outline_generated && (
+            <span className="rounded bg-accent-blue/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-blue">
+              outline
+            </span>
+          )}
+          {item.lc_generated && (
+            <span className="rounded bg-accent-green/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-green">
+              lesson plan
+            </span>
+          )}
+        </span>
+      )}
       {item.size && (
         <span className="font-mono text-[10px] text-text-faint">
           {item.size}

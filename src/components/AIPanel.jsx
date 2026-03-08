@@ -50,6 +50,11 @@ const TOOL_LABELS = {
   list_content_nodes: "Listing content",
   navigate_to_content_node: "Opening content",
   navigate_to_phase: "Opening phase",
+  list_practice_exams: "Listing practice exams",
+  get_progress: "Fetching progress",
+  navigate_to_practice_exam: "Opening practice exam",
+  generate_practice_exam: "Generating practice exam",
+  navigate_to_progress: "Opening Progress page",
 };
 
 function RelativeTime({ date }) {

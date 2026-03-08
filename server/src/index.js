@@ -7,6 +7,8 @@ import { createServer as createViteServer } from "vite";
 import { outlineRouter } from "./routes/outline.js";
 import { contentRouter } from "./routes/content.js";
 import { chatRouter } from "./routes/chat.js";
+import { practiceRouter } from "./routes/practice.js";
+import { progressRouter } from "./routes/progress.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
@@ -23,16 +25,19 @@ app.use(express.json());
 app.use("/api/agents/outline", outlineRouter);
 app.use("/api/agents/content", contentRouter);
 app.use("/api/chat", chatRouter);
-
+app.use("/api/practice", practiceRouter);
+app.use("/api/progress", progressRouter);
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 if (isProd) {
   app.use(express.static(path.join(root, "dist")));
-  app.get("{*path}", (_req, res) => {
+  app.get("/{*splat}", (_req, res) => {
     res.sendFile(path.join(root, "dist", "index.html"));
   });
 } else {
   const vite = await createViteServer({
+    root,
+    configFile: path.join(root, "vite.config.js"),
     server: { middlewareMode: true },
     appType: "spa",
   });

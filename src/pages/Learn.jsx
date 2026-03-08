@@ -1,11 +1,21 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Clock, CheckCircle2, XCircle, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Clock, CheckCircle2, XCircle, ChevronRight, ChevronLeft } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { getContentNodeWithPhases } from "../lib/outlineService";
+import { getContentNodeWithPhases, getOutline, getFolderName } from "../lib/outlineService";
+
+function flattenContentNodes(nodes) {
+  const out = [];
+  for (const n of nodes || []) {
+    if (n.type === "content") out.push({ id: n.id, title: n.title });
+    if (n.children?.length) out.push(...flattenContentNodes(n.children));
+    if (n.nodes?.length) out.push(...flattenContentNodes(n.nodes));
+  }
+  return out;
+}
 
 function QuizOption({ option, selected, revealed, onSelect }) {
   const isCorrect = option.correct;
@@ -166,8 +176,17 @@ export default function Learn() {
   const navigate = useNavigate();
   const location = useLocation();
   const [data, setData] = useState(null);
+  const [outline, setOutline] = useState(null);
+  const [folderName, setFolderName] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (folderId) {
+      getOutline(folderId).then((o) => setOutline(o));
+      getFolderName(folderId).then((n) => setFolderName(n));
+    }
+  }, [folderId]);
 
   useEffect(() => {
     const hash = location.hash?.slice(1);
@@ -193,6 +212,11 @@ export default function Learn() {
   }, [contentNodeId]);
 
   const totalTime = data?.phases?.reduce((s, p) => s + p.estimated_time_minutes, 0) || 0;
+
+  const contentOrder = flattenContentNodes(outline?.nodes || []);
+  const currentIdx = contentOrder.findIndex((n) => n.id === contentNodeId);
+  const prevNode = currentIdx > 0 ? contentOrder[currentIdx - 1] : null;
+  const nextNode = currentIdx >= 0 && currentIdx < contentOrder.length - 1 ? contentOrder[currentIdx + 1] : null;
 
   if (loading) {
     return (
@@ -221,11 +245,10 @@ export default function Learn() {
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border-default px-6 py-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(`/course/${folderId}`)}
           className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 font-sans text-[12px] text-text-secondary transition-colors hover:bg-[#1a1a1e] hover:text-text-primary"
         >
-          <ArrowLeft className="size-3.5" />
-          Back
+          {folderName || "Course"}
         </button>
         <ChevronRight className="size-3 text-text-faint" />
         <h1 className="flex-1 truncate font-sans text-[14px] font-semibold text-text-primary">
@@ -238,8 +261,9 @@ export default function Learn() {
       </div>
 
       {/* Content */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-2xl flex-col gap-12 px-6 py-8">
+      <div className="flex min-h-0 flex-1 overflow-y-auto">
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex max-w-2xl flex-col gap-12 px-6 py-8">
           {data.phases.map((phase, i) => (
             <PhaseSection
               key={phase.id}
@@ -263,6 +287,43 @@ export default function Learn() {
               </button>
             </div>
           )}
+          </div>
+        </div>
+        <div className="sticky top-4 flex h-fit shrink-0 flex-col gap-2 border-l border-border-default pl-4 pr-6 py-4">
+          <button
+            onClick={() => prevNode && navigate(`/course/${folderId}/learn/${prevNode.id}`)}
+            disabled={!prevNode}
+            className={`w-[140px] rounded-lg border px-3 py-2 text-left transition-colors ${
+              prevNode
+                ? "cursor-pointer border-border-default bg-bg-elevated text-text-primary hover:border-accent-blue/50 hover:bg-[#2a2a2a]"
+                : "cursor-default border-border-subtle bg-[#1a1a1a] text-text-faint opacity-60"
+            }`}
+          >
+            <span className="flex items-center gap-1 font-sans text-[10px] font-medium uppercase tracking-wide text-text-faint">
+              <ChevronLeft className="size-3" />
+              Previous
+            </span>
+            <span className="mt-0.5 block truncate font-sans text-[12px]">
+              {prevNode?.title || "—"}
+            </span>
+          </button>
+          <button
+            onClick={() => nextNode && navigate(`/course/${folderId}/learn/${nextNode.id}`)}
+            disabled={!nextNode}
+            className={`w-[140px] rounded-lg border px-3 py-2 text-left transition-colors ${
+              nextNode
+                ? "cursor-pointer border-border-default bg-bg-elevated text-text-primary hover:border-accent-blue/50 hover:bg-[#2a2a2a]"
+                : "cursor-default border-border-subtle bg-[#1a1a1a] text-text-faint opacity-60"
+            }`}
+          >
+            <span className="flex items-center gap-1 font-sans text-[10px] font-medium uppercase tracking-wide text-text-faint">
+              Next up
+              <ArrowRight className="size-3" />
+            </span>
+            <span className="mt-0.5 block truncate font-sans text-[12px]">
+              {nextNode?.title || "—"}
+            </span>
+          </button>
         </div>
       </div>
     </div>

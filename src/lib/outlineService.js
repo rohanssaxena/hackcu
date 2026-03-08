@@ -3,6 +3,20 @@ import { supabase } from "./supabase";
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "";
 
 /**
+ * Fetch folder name by id.
+ */
+export async function getFolderName(folderId) {
+  const { data, error } = await supabase
+    .from("folders")
+    .select("name")
+    .eq("id", folderId)
+    .single();
+
+  if (error || !data) return null;
+  return data.name;
+}
+
+/**
  * Fetch files that will be indexed for a given folder.
  */
 export async function getFilesForFolder(folderId) {

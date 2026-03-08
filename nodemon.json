@@ -1,5 +1,6 @@
 {
-  "watch": ["server", "src", "index.html", "vite.config.js"],
-  "ignore": ["node_modules", "dist", "**/.vite", "**/node_modules"],
-  "ext": "js,jsx,json,html,css"
+  "watch": ["server", "src", "index.html", "vite.config.js", "prompts"],
+  "ignore": ["node_modules", "dist", "**/.vite", "**/node_modules", "*.log", ".git"],
+  "ext": "js,jsx,json,html,css,md",
+  "delay": "500"
 }
