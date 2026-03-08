@@ -11,15 +11,52 @@ function getAnthropicKey() { return import.meta.env.VITE_ANTHROPIC_API_KEY; }
 
 function storageKey(courseId) { return `micro_review_${courseId}`; }
 
-function loadSaved(courseId) {
+// localStorage used as fast cache; Supabase is source of truth
+function loadCached(courseId) {
   try { return JSON.parse(localStorage.getItem(storageKey(courseId)) || "null"); }
   catch { return null; }
 }
-function persist(courseId, data) {
+function writeCache(courseId, data) {
   localStorage.setItem(storageKey(courseId), JSON.stringify(data));
 }
-function clearSaved(courseId) {
+function clearCache(courseId) {
   localStorage.removeItem(storageKey(courseId));
+}
+
+async function loadFromSupabase(supabase, courseId) {
+  try {
+    const userId = localStorage.getItem("micro_user_email") || "anonymous";
+    const { data, error } = await supabase
+      .from("study_sets")
+      .select("terms, questions, generated_at")
+      .eq("user_id", userId)
+      .eq("course_id", String(courseId))
+      .single();
+    if (error || !data) return null;
+    return { terms: data.terms, questions: data.questions, generatedAt: new Date(data.generated_at).getTime() };
+  } catch { return null; }
+}
+
+async function saveToSupabase(supabase, courseId, result) {
+  try {
+    const userId = localStorage.getItem("micro_user_email") || "anonymous";
+    await supabase.from("study_sets").upsert({
+      user_id: userId,
+      course_id: String(courseId),
+      terms: result.terms,
+      questions: result.questions,
+      generated_at: new Date(result.generatedAt).toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id,course_id" });
+  } catch { /* non-fatal */ }
+}
+
+async function deleteFromSupabase(supabase, courseId) {
+  try {
+    const userId = localStorage.getItem("micro_user_email") || "anonymous";
+    await supabase.from("study_sets").delete()
+      .eq("user_id", userId).eq("course_id", String(courseId));
+  } catch { /* non-fatal */ }
 }
 
 async function pdfToBase64(canvasFile, token) {
@@ -446,10 +483,21 @@ export default function Review() {
   // Load saved data + files whenever course changes
   useEffect(() => {
     if (!courseId) return;
-    setData(loadSaved(courseId));
     setError(null);
     setConfirmRegen(false);
     setMode("flashcards");
+
+    // Load from localStorage cache immediately for fast render
+    const cached = loadCached(courseId);
+    setData(cached);
+
+    // Then fetch from Supabase as source of truth
+    loadFromSupabase(supabase, courseId).then(remote => {
+      if (remote) {
+        setData(remote);
+        writeCache(courseId, remote); // keep cache in sync
+      }
+    });
 
     setFilesLoading(true);
     getFiles(courseId)
@@ -502,7 +550,8 @@ export default function Review() {
       }
       if (!allTerms.length) throw new Error("Nothing extracted — the PDFs may be image-only or locked.");
       const result = { terms: allTerms, questions: allQs, generatedAt: Date.now() };
-      persist(courseId, result);
+      writeCache(courseId, result);
+      await saveToSupabase(supabase, courseId, result);
       setData(result);
     } catch (e) {
       setError(e.message);
@@ -513,7 +562,7 @@ export default function Review() {
   }
 
   function handleRegenClick() { setConfirmRegen(true); }
-  function handleClear() { clearSaved(courseId); setData(null); setConfirmRegen(false); }
+  function handleClear() { clearCache(courseId); deleteFromSupabase(supabase, courseId); setData(null); setConfirmRegen(false); }
 
   const ingestedSources = new Set((data?.terms || []).map(t => t.source));
 
@@ -540,7 +589,8 @@ export default function Review() {
         questions:   [...(data?.questions || []), ...newQs],
         generatedAt: data?.generatedAt ?? Date.now(),
       };
-      persist(courseId, result);
+      writeCache(courseId, result);
+      await saveToSupabase(supabase, courseId, result);
       setData(result);
       setAddingMore(false);
       setMoreSelected(new Set());
