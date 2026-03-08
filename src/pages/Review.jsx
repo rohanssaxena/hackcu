@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Layers, ListChecks, Sparkles, Loader2, FileText,
-  Check, X, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle,
+  Check, X, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Upload,
 } from "lucide-react";
 import { getFiles } from "../services/canvasAPI";
 import { useCourse } from "../context/CourseContext";
@@ -34,6 +34,61 @@ async function pdfToBase64(canvasFile, token) {
     r.onerror = reject;
     r.readAsDataURL(blob);
   });
+}
+
+async function localFileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload  = () => resolve(r.result.split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+async function extractFromLocalFile(file) {
+  const key = getAnthropicKey();
+  if (!key) throw new Error("VITE_ANTHROPIC_API_KEY not set");
+  const base64 = await localFileToBase64(file);
+  const res = await fetch("/anthropic-api/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4000,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+          { type: "text", text: `Extract study material from this lecture PDF.
+
+Return ONLY a raw JSON object, no markdown fences:
+{
+  "terms": [
+    { "term": "...", "definition": "1-3 sentence explanation", "category": "definition"|"person"|"event"|"equation"|"concept" }
+  ],
+  "questions": [
+    { "question": "...", "answer": "explanation of correct answer", "options": ["plain string","plain string","plain string","plain string"], "correct": 0, "difficulty": "easy"|"medium"|"hard" }
+  ]
+}
+
+Rules: min 10 terms, min 6 questions. options are plain strings (no A/B/C prefix). correct is 0-based index.` },
+        ],
+      }],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Anthropic ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const raw  = data.content?.[0]?.text ?? "{}";
+  try { return JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+  catch { throw new Error("Claude returned invalid JSON"); }
 }
 
 async function extractFromFile(file, token) {
@@ -386,6 +441,7 @@ export default function Review() {
   const [confirmRegen, setConfirmRegen] = useState(false);
   const [addingMore,   setAddingMore]   = useState(false);
   const [moreSelected, setMoreSelected] = useState(new Set());
+  const [localUploadFiles, setLocalUploadFiles] = useState([]); // File objects from disk
 
   // Load saved data + files whenever course changes
   useEffect(() => {
@@ -415,25 +471,34 @@ export default function Review() {
   async function generate() {
     const key = getAnthropicKey();
     if (!key) { setError("Add VITE_ANTHROPIC_API_KEY to .env and restart dev server."); return; }
-    if (!selected.size) { setError("Select at least one file."); return; }
+    if (!selected.size && !localUploadFiles.length) { setError("Select at least one file or upload a PDF."); return; }
 
     setGenerating(true);
     setError(null);
     setConfirmRegen(false);
 
-    const toProcess = files.filter(f => selected.has(f.id));
+    const canvasFiles = files.filter(f => selected.has(f.id));
+    const totalCount = canvasFiles.length + localUploadFiles.length;
     const allTerms = [], allQs = [];
 
     try {
-      for (let i = 0; i < toProcess.length; i++) {
-        const f = toProcess[i];
-        setProgress(`Analyzing ${f.display_name || f.filename} (${i + 1}/${toProcess.length})…`);
-        try {
-          const extracted = await extractFromFile(f, token);
-          const src = f.display_name || f.filename;
-          (extracted.terms     || []).forEach(t => allTerms.push({ ...t, source: src }));
-          (extracted.questions || []).forEach(q => allQs.push({   ...q, source: src }));
-        } catch (e) { throw e; }
+      // Process Canvas files
+      for (let i = 0; i < canvasFiles.length; i++) {
+        const f = canvasFiles[i];
+        setProgress(`Analyzing ${f.display_name || f.filename} (${i + 1}/${totalCount})…`);
+        const extracted = await extractFromFile(f, token);
+        const src = f.display_name || f.filename;
+        (extracted.terms     || []).forEach(t => allTerms.push({ ...t, source: src }));
+        (extracted.questions || []).forEach(q => allQs.push({   ...q, source: src }));
+      }
+      // Process locally uploaded files
+      for (let i = 0; i < localUploadFiles.length; i++) {
+        const f = localUploadFiles[i];
+        setProgress(`Analyzing ${f.name} (${canvasFiles.length + i + 1}/${totalCount})…`);
+        const extracted = await extractFromLocalFile(f);
+        const src = f.name;
+        (extracted.terms     || []).forEach(t => allTerms.push({ ...t, source: src }));
+        (extracted.questions || []).forEach(q => allQs.push({   ...q, source: src }));
       }
       if (!allTerms.length) throw new Error("Nothing extracted — the PDFs may be image-only or locked.");
       const result = { terms: allTerms, questions: allQs, generatedAt: Date.now() };
@@ -541,9 +606,45 @@ export default function Review() {
             )}
             {!filesLoading && !files.length && (
               <p className="font-sans text-[12px] text-text-secondary">
-                No PDFs found for {shortCode(activeCourse)}. This course may not have published files.
+                No PDFs found for {shortCode(activeCourse)}. Upload your notes below.
               </p>
             )}
+
+            {/* Local file upload */}
+            <div className="flex flex-col gap-2 border-t border-border-default pt-3">
+              <p className="font-sans text-[12px] font-medium text-text-secondary">Or upload your own notes</p>
+              <label className="flex w-fit items-center gap-2 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors">
+                <Upload className="size-3.5" />
+                Choose PDFs from your computer
+                <input
+                  type="file"
+                  accept=".pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const picked = [...e.target.files];
+                    setLocalUploadFiles(prev => {
+                      const existing = new Set(prev.map(f => f.name));
+                      return [...prev, ...picked.filter(f => !existing.has(f.name))];
+                    });
+                  }}
+                />
+              </label>
+              {localUploadFiles.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {localUploadFiles.map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded px-2 py-1 bg-[#2a2a2e]">
+                      <FileText className="size-3.5 shrink-0 text-red-400" />
+                      <span className="flex-1 truncate font-sans text-[12px] text-text-primary">{f.name}</span>
+                      <button onClick={() => setLocalUploadFiles(prev => prev.filter((_, j) => j !== i))}
+                        className="cursor-pointer text-text-faint hover:text-red-400 transition-colors">
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {!filesLoading && !!files.length && (
               <FileSelector files={files} selected={selected} onToggle={toggleFile} />
             )}

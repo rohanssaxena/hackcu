@@ -4,7 +4,7 @@ import {
   Folder, FileText, File, ChevronRight, ChevronDown,
   List, LayoutGrid, ArrowUpDown, Filter, Plus, Download,
   FolderOpen, ArrowUpRight, Search, BookOpen, Sparkles,
-  Check, Loader2, ExternalLink, Upload, Lock,
+  Check, Loader2, ExternalLink, Upload, Lock, X,
 } from "lucide-react";
 import { resolvePathToNode } from "../data/fileSystem";
 import { getFiles } from "../services/canvasAPI";
@@ -62,6 +62,19 @@ function markIngested(id) {
   const ids = getIngestedIds();
   ids.add(String(id));
   localStorage.setItem(INGESTION_KEY, JSON.stringify([...ids]));
+}
+
+// ── Local uploaded files ───────────────────────────────────────────────────
+const LOCAL_UPLOADS_KEY = "micro_local_uploads";
+function getLocalUploads(courseId) {
+  try { return JSON.parse(localStorage.getItem(`${LOCAL_UPLOADS_KEY}_${courseId}`) || "[]"); }
+  catch { return []; }
+}
+function saveLocalUpload(courseId, file) {
+  const existing = getLocalUploads(courseId);
+  const entry = { id: `local_${Date.now()}_${file.name}`, name: file.name, size: file.size, uploadedAt: new Date().toISOString(), local: true };
+  localStorage.setItem(`${LOCAL_UPLOADS_KEY}_${courseId}`, JSON.stringify([...existing, entry]));
+  return entry;
 }
 
 // ── Canvas file row ────────────────────────────────────────────────────────
@@ -127,6 +140,17 @@ function CanvasCourseFolder({ course }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [localFiles, setLocalFiles] = useState(() => getLocalUploads(course.id));
+  const [uploadToast, setUploadToast] = useState(null);
+
+  function handleUpload(e) {
+    const uploaded = [...e.target.files];
+    if (!uploaded.length) return;
+    const entries = uploaded.map(f => saveLocalUpload(course.id, f));
+    setLocalFiles(prev => [...prev, ...entries]);
+    setUploadToast(`${uploaded.length} file${uploaded.length > 1 ? "s" : ""} added`);
+    setTimeout(() => setUploadToast(null), 2500);
+  }
 
   const canvasUrl = `https://canvas.colorado.edu/courses/${course.id}/files`;
 
@@ -228,10 +252,7 @@ function CanvasCourseFolder({ course }) {
                     multiple
                     className="hidden"
                     onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                      // TODO: wire to ingestion pipeline
-                      console.log("Files to ingest:", [...e.target.files].map(f => f.name));
-                    }}
+                    onChange={handleUpload}
                   />
                 </label>
               </div>
@@ -264,9 +285,7 @@ function CanvasCourseFolder({ course }) {
                   multiple
                   className="hidden"
                   onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    console.log("Files to ingest:", [...e.target.files].map(f => f.name));
-                  }}
+                  onChange={handleUpload}
                 />
               </label>
             </div>
@@ -287,11 +306,47 @@ function CanvasCourseFolder({ course }) {
                   multiple
                   className="hidden"
                   onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    console.log("Files to ingest:", [...e.target.files].map(f => f.name));
-                  }}
+                  onChange={handleUpload}
                 />
               </label>
+            </div>
+          )}
+
+          {/* Local uploaded files */}
+          {localFiles.length > 0 && (
+            <div className="mt-1 flex flex-col gap-0.5">
+              <span className="pl-1 font-sans text-[10px] uppercase tracking-wide text-text-faint pt-1">Uploaded by you</span>
+              {localFiles.map((f) => (
+                <div key={f.id} className="group flex items-center rounded py-1.5 px-1 transition-colors hover:bg-[#2a2a2e]">
+                  <div className="flex flex-1 items-center gap-2 min-w-0">
+                    <span className="w-5 shrink-0" />
+                    <FileText className="size-4 shrink-0 text-red-400" />
+                    <span className="font-sans text-[13px] text-text-primary truncate">{f.name}</span>
+                  </div>
+                  <span className="font-mono text-[10px] text-text-faint shrink-0">
+                    {f.size ? `${(f.size / 1048576).toFixed(1)} MB` : ""}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const updated = localFiles.filter(u => u.id !== f.id);
+                      setLocalFiles(updated);
+                      localStorage.setItem(`micro_local_uploads_${course.id}`, JSON.stringify(updated));
+                    }}
+                    className="ml-3 opacity-0 group-hover:opacity-100 cursor-pointer text-text-faint hover:text-red-400 transition-all"
+                    title="Remove"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Toast */}
+          {uploadToast && (
+            <div className="mt-1 flex items-center gap-1.5 rounded-lg bg-accent-green/10 border border-accent-green/30 px-3 py-1.5">
+              <Check className="size-3 text-accent-green" />
+              <span className="font-sans text-[11px] text-accent-green">{uploadToast}</span>
             </div>
           )}
 
