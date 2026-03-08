@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { TrendingUp } from "lucide-react";
 
 // Returns days until the next upcoming assignment for this course

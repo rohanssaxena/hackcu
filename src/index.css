@@ -4,15 +4,15 @@
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", "Menlo", ui-monospace, monospace;
 
-  --color-bg-primary: #1e1e1e;
-  --color-bg-sidebar: #252526;
+  --color-bg-primary: #181818;
+  --color-bg-sidebar: #141414;
   --color-bg-elevated: #2a2a2a;
   --color-bg-hover: #393939;
   --color-bg-chip: #383839;
-  --color-bg-active-tab: #233c40;
+  --color-bg-active-tab: #232323;
 
-  --color-border-default: #3e3e3e;
-  --color-border-subtle: #3a3a3a;
+  --color-border-default: #232323;
+  --color-border-subtle: #232323;
 
   --color-text-primary: #cccccc;
   --color-text-secondary: #858585;
@@ -20,7 +20,7 @@
   --color-text-faint: #646464;
   --color-text-label: #565656;
   --color-text-separator: #3e3e3e;
-  --color-text-tab: #969696;
+  --color-text-tab: #868686;
 
   --color-accent-blue: #2b7fff;
   --color-accent-green: #05df72;
@@ -80,4 +80,15 @@ body,
 @keyframes shimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+/* react-pdf overrides for dark theme */
+.react-pdf__Page {
+  background: transparent !important;
+}
+.react-pdf__Page__textContent {
+  user-select: text;
+}
+.react-pdf__Page__annotations {
+  pointer-events: auto;
 }

@@ -29,8 +29,7 @@ function PlanCard({ item, index }) {
   const dotColor = URGENCY_DOT[item.urgency] || URGENCY_DOT.low;
 
   return (
-    <div className="group/card cursor-pointer rounded-md px-2 py-3 -mx-2 transition-colors hover:bg-[#2e2e30]">
-      {/* Meta row */}
+    <div className="group/card -mx-2 cursor-pointer rounded-md px-2 py-3 transition-colors hover:bg-[#2e2e30]">
       <div className="flex items-center justify-between">
         <div className="flex flex-1 items-center gap-1.5 min-w-0">
           <span className="font-mono text-[10px] text-text-secondary shrink-0">#{index + 1}</span>
