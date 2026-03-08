@@ -42,6 +42,8 @@ The dev server runs at `http://localhost:3001` — one server serves both the Re
 ```
 src/
 ├── main.jsx                  # Entry point, router config
+├── HackCU_12_Bayesian.ipynb  # bayesian tracker - notebook
+├── hackcu_12_bayes.py        # bayesian tracker '.py' source code
 ├── index.css                 # Tailwind imports, theme tokens, animations
 ├── layouts/
 │   └── AppLayout.jsx         # Shared shell (sidebar + tab bar + AI panel)
