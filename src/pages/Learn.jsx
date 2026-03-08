@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Clock, CheckCircle2, XCircle, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
@@ -116,7 +116,7 @@ function QuizCheckpoint({ checkpoint, index }) {
 
 function PhaseSection({ phase, phaseIndex, total }) {
   return (
-    <section className="flex flex-col gap-6">
+    <section id={`phase-${phaseIndex + 1}`} className="flex flex-col gap-6 scroll-mt-4">
       <div className="flex items-center gap-3 border-b border-[#1e1e1e] pb-4">
         <span className="flex size-7 items-center justify-center rounded-full bg-accent-blue/10 font-mono text-[11px] font-semibold text-accent-blue">
           {phaseIndex + 1}
@@ -164,9 +164,23 @@ function PhaseSection({ phase, phaseIndex, total }) {
 export default function Learn() {
   const { courseName, contentNodeId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const hash = location.hash?.slice(1);
+    if (hash && hash.startsWith("phase-") && data?.phases?.length) {
+      const phaseNum = parseInt(hash.replace("phase-", ""), 10);
+      if (phaseNum >= 1 && phaseNum <= data.phases.length) {
+        const el = document.getElementById(hash);
+        if (el) {
+          setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+        }
+      }
+    }
+  }, [location.hash, data?.phases?.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,7 +217,7 @@ export default function Learn() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border-default px-6 py-3">
         <button
@@ -224,7 +238,7 @@ export default function Learn() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-2xl flex-col gap-12 px-6 py-8">
           {data.phases.map((phase, i) => (
             <PhaseSection
