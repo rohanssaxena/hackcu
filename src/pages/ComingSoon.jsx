@@ -4,6 +4,7 @@ const PAGE_NAMES = {
   "/progress": "Progress",
   "/academics": "Academics",
   "/review": "Review",
+  "/admin": "Admin Panel",
 };
 
 export default function ComingSoon() {

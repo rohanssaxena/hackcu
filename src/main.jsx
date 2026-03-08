@@ -19,6 +19,7 @@ createRoot(document.getElementById("root")).render(
           <Route path="/progress" element={<ComingSoon />} />
           <Route path="/academics" element={<ComingSoon />} />
           <Route path="/review" element={<ComingSoon />} />
+          <Route path="/admin" element={<ComingSoon />} />
         </Route>
       </Routes>
     </BrowserRouter>

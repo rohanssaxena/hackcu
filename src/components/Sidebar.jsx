@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Folder,
@@ -10,27 +10,22 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronRight,
-  Sparkles,
   Sun,
   Moon,
   Monitor,
   User,
+  ArrowUpRight,
+  Shield,
 } from "lucide-react";
+import { supabase, USER_ID } from "../lib/supabase";
+import { useTabs } from "../contexts/TabContext";
 
 const NAV_ITEMS = [
-  { label: "Dashboard", Icon: LayoutDashboard, path: "/" },
-  { label: "My Workspace", Icon: Folder, path: "/workspace" },
-  { label: "Progress", Icon: BarChart3, path: "/progress" },
-  { label: "Academics", Icon: GraduationCap, path: "/academics" },
-  { label: "Review", Icon: RotateCcw, path: "/review" },
-];
-
-const FAVORITES = ["APPM Exam 2 revision", "csci midterm 1"];
-
-const QUICK_ACTIONS = [
-  "Review due content",
-  "Custom shortcut 1",
-  "Custom shortcut 2",
+  { label: "Dashboard", Icon: LayoutDashboard, path: "/", color: "text-blue-400" },
+  { label: "My Workspace", Icon: Folder, path: "/workspace", color: "text-amber-400" },
+  { label: "Progress", Icon: BarChart3, path: "/progress", color: "text-emerald-400" },
+  { label: "Academics", Icon: GraduationCap, path: "/academics", color: "text-purple-400" },
+  { label: "Review", Icon: RotateCcw, path: "/review", color: "text-rose-400" },
 ];
 
 const THEME_OPTIONS = [
@@ -42,10 +37,62 @@ const THEME_OPTIONS = [
 export default function Sidebar({ onOpenGuidedMode }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { navigateInPlace } = useTabs();
   const [collapsed, setCollapsed] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(true);
   const [quickActionsOpen, setQuickActionsOpen] = useState(true);
   const [theme, setTheme] = useState("dark");
+
+  const [profile, setProfile] = useState({ full_name: "Rohan", email: "rohan@micro.study" });
+  const [favorites, setFavorites] = useState([]);
+  const [shortcuts, setShortcuts] = useState([]);
+  const [currentFolder, setCurrentFolder] = useState(null);
+  const [activeCourse, setActiveCourse] = useState(null);
+
+  useEffect(() => {
+    async function load() {
+      const [profileRes, prefsRes, favsRes, shortcutsRes, wsRes] =
+        await Promise.all([
+          supabase.from("profiles").select("*").eq("id", USER_ID).single(),
+          supabase
+            .from("user_preferences")
+            .select("*")
+            .eq("user_id", USER_ID)
+            .single(),
+          supabase
+            .from("favorites")
+            .select("*")
+            .eq("user_id", USER_ID)
+            .order("sort_order"),
+          supabase
+            .from("user_shortcuts")
+            .select("*")
+            .eq("user_id", USER_ID)
+            .order("sort_order"),
+          supabase
+            .from("workspace_state")
+            .select("*, folders(*)")
+            .eq("user_id", USER_ID)
+            .single(),
+        ]);
+
+      if (profileRes.data) setProfile(profileRes.data);
+      if (prefsRes.data) setTheme(prefsRes.data.theme || "dark");
+      if (favsRes.data) setFavorites(favsRes.data);
+      if (shortcutsRes.data) setShortcuts(shortcutsRes.data);
+
+      if (wsRes.data?.folders) {
+        setCurrentFolder(wsRes.data.folders);
+        const { data: course } = await supabase
+          .from("courses")
+          .select("id, title")
+          .eq("folder_id", wsRes.data.current_folder_id)
+          .single();
+        if (course) setActiveCourse(course);
+      }
+    }
+    load();
+  }, []);
 
   const isActive = (path) => {
     if (path === "/") return location.pathname === "/";
@@ -84,7 +131,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
       <div className="flex flex-col gap-1.5 px-3 pt-1 pb-1">
         <button className="flex h-[26px] cursor-pointer items-center justify-between rounded border border-border-subtle bg-bg-elevated px-2 transition-colors hover:bg-bg-hover">
           <span className="font-sans text-[13px] leading-[19.5px] text-text-primary">
-            Current Folder
+            {currentFolder ? currentFolder.name : "Current Folder"}
           </span>
           <ChevronDown className="size-3 text-text-secondary" />
         </button>
@@ -92,7 +139,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
           <div className="flex items-center gap-1.5">
             <span className="size-1 rounded-full bg-text-primary" />
             <span className="font-sans text-[13px] leading-[19.5px] text-text-primary">
-              APPM 1360
+              {activeCourse?.title || "No course"}
             </span>
           </div>
           <ChevronDown className="size-3 text-text-secondary" />
@@ -106,14 +153,14 @@ export default function Sidebar({ onOpenGuidedMode }) {
           return (
             <button
               key={item.label}
-              onClick={() => navigate(item.path)}
+              onClick={() => navigateInPlace(item.path)}
               className={`flex h-[23.5px] cursor-pointer items-center gap-1.5 pl-4 transition-colors ${
                 active
-                  ? "bg-[#1e2a3a] text-text-primary"
-                  : "text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary"
+                  ? "bg-[#232323] text-white"
+                  : "text-[#868686] hover:bg-[#2e2e2e] hover:text-text-primary"
               }`}
             >
-              <item.Icon className="size-3.5" />
+              <item.Icon className={`size-3.5 ${active ? item.color : item.color + "/60"}`} />
               <span className="font-sans text-[13px] leading-[19.5px]">
                 {item.label}
               </span>
@@ -122,7 +169,6 @@ export default function Sidebar({ onOpenGuidedMode }) {
         })}
       </nav>
 
-      {/* Divider */}
       <div className="mx-0 mt-1.5 h-px bg-border-default" />
 
       {/* Favorites — collapsible */}
@@ -142,13 +188,13 @@ export default function Sidebar({ onOpenGuidedMode }) {
         </button>
         {favoritesOpen && (
           <div className="flex flex-col">
-            {FAVORITES.map((fav) => (
+            {favorites.map((fav) => (
               <button
-                key={fav}
+                key={fav.id}
                 className="flex h-[23.5px] cursor-pointer items-center pl-4 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
               >
                 <span className="font-sans text-[13px] leading-[19.5px]">
-                  {fav}
+                  {fav.label}
                 </span>
               </button>
             ))}
@@ -156,7 +202,6 @@ export default function Sidebar({ onOpenGuidedMode }) {
         )}
       </div>
 
-      {/* Divider */}
       <div className="mx-0 mt-1.5 h-px bg-border-default" />
 
       {/* Quick Actions — collapsible */}
@@ -176,13 +221,13 @@ export default function Sidebar({ onOpenGuidedMode }) {
         </button>
         {quickActionsOpen && (
           <div className="flex flex-col">
-            {QUICK_ACTIONS.map((action) => (
+            {shortcuts.map((action) => (
               <button
-                key={action}
+                key={action.id}
                 className="flex h-[23.5px] cursor-pointer items-center pl-4 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
               >
                 <span className="font-sans text-[13px] leading-[19.5px]">
-                  {action}
+                  {action.label}
                 </span>
               </button>
             ))}
@@ -190,19 +235,24 @@ export default function Sidebar({ onOpenGuidedMode }) {
         )}
       </div>
 
-      {/* Spacer */}
       <div className="flex-1" />
 
       {/* Bottom section */}
       <div className="flex flex-col gap-2 px-3 pb-3">
         <button
-          onClick={onOpenGuidedMode}
-          className="guided-btn group relative flex cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-md px-3 py-2 font-sans text-[12px] font-medium text-white transition-all"
+          onClick={() => navigateInPlace("/admin")}
+          className="flex h-[23.5px] cursor-pointer items-center gap-1.5 rounded px-2 text-[#868686] transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
         >
-          <span className="guided-btn-bg absolute inset-0 rounded-md" />
-          <span className="guided-btn-shimmer absolute inset-0 rounded-md" />
-          <Sparkles className="relative z-10 size-3.5" />
-          <span className="relative z-10">Guided Learning Mode</span>
+          <Shield className="size-3.5 text-text-faint" />
+          <span className="font-sans text-[13px] leading-[19.5px]">Admin Panel</span>
+        </button>
+
+        <button
+          onClick={onOpenGuidedMode}
+          className="flex cursor-pointer items-center justify-center gap-1.5 rounded bg-white px-3 py-1.5 text-black transition-colors hover:bg-gray-200"
+        >
+          <span className="font-sans text-[12px] font-medium">Guided Learning</span>
+          <ArrowUpRight className="size-3" />
         </button>
 
         <div className="flex h-8 items-center rounded-md bg-[#1e1e1e] p-0.5">
@@ -228,10 +278,10 @@ export default function Sidebar({ onOpenGuidedMode }) {
           </div>
           <div className="flex flex-col items-start">
             <span className="font-sans text-[12px] leading-tight text-text-primary">
-              Rohan
+              {profile.full_name}
             </span>
             <span className="font-sans text-[10px] leading-tight text-text-secondary">
-              rohan@micro.study
+              {profile.email}
             </span>
           </div>
         </button>

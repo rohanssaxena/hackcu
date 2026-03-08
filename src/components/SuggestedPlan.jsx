@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   MoreHorizontal,
   Flag,
@@ -5,49 +6,7 @@ import {
   ArrowUpRight,
   FileText,
 } from "lucide-react";
-
-const PLAN_ITEMS = [
-  {
-    id: "ITEM-1",
-    dueDate: "Due Mar 15",
-    course: "CSCI 2270",
-    title:
-      "Make sure you understand CSCI concepts and do a detailed drill down",
-    description:
-      "Your midterm exam covers tree data structures extensively. This topic appeared in 3 recent practice problems you struggled with.",
-    sources: ["BST Notes - Ch. 4"],
-  },
-  {
-    id: "ITEM-2",
-    dueDate: "Due Mar 15",
-    course: "CSCI 2270",
-    title:
-      "Make sure you understand CSCI concepts and do a detailed drill down",
-    description:
-      "Your midterm exam covers tree data structures extensively. This topic appeared in 3 recent practice problems you struggled with.",
-    sources: [],
-  },
-  {
-    id: "ITEM-3",
-    dueDate: "Due Mar 15",
-    course: "CSCI 2270",
-    title:
-      "Make sure you understand CSCI concepts and do a detailed drill down",
-    description:
-      "Your midterm exam covers tree data structures extensively. This topic appeared in 3 recent practice problems you struggled with.",
-    sources: ["BST Notes - Ch. 4", "BST Notes - Ch. 4"],
-  },
-  {
-    id: "ITEM-4",
-    dueDate: "Due Mar 15",
-    course: "CSCI 2270",
-    title:
-      "Make sure you understand CSCI concepts and do a detailed drill down",
-    description:
-      "Your midterm exam covers tree data structures extensively. This topic appeared in 3 recent practice problems you struggled with.",
-    sources: ["BST Notes - Ch. 4"],
-  },
-];
+import { supabase, USER_ID } from "../lib/supabase";
 
 function SourceChip({ label }) {
   return (
@@ -62,8 +21,7 @@ function SourceChip({ label }) {
 
 function PlanItem({ item }) {
   return (
-    <div className="group/card cursor-pointer rounded-md px-2 py-3 -mx-2 transition-colors hover:bg-[#2e2e30]">
-      {/* Meta row */}
+    <div className="group/card -mx-2 cursor-pointer rounded-md px-2 py-3 transition-colors hover:bg-[#2e2e30]">
       <div className="flex items-center justify-between">
         <div className="flex flex-1 items-center gap-1.5">
           <span className="font-mono text-[10px] leading-[15px] text-text-secondary">
@@ -88,7 +46,6 @@ function PlanItem({ item }) {
         </div>
       </div>
 
-      {/* Title + description */}
       <div className="mt-1.5 flex flex-col">
         <p className="font-sans text-[13px] font-medium leading-[18px] text-text-primary">
           {item.title}
@@ -98,7 +55,6 @@ function PlanItem({ item }) {
         </p>
       </div>
 
-      {/* Sources */}
       {item.sources.length > 0 && (
         <div className="mt-1.5 flex items-center gap-2">
           {item.sources.map((src, i) => (
@@ -111,6 +67,66 @@ function PlanItem({ item }) {
 }
 
 export default function SuggestedPlan() {
+  const [planItems, setPlanItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      // Fetch upcoming exams to build plan items
+      const { data: exams } = await supabase
+        .from("exams")
+        .select("id, title, exam_date, exam_type, notes, courses(title), scope_topic_ids")
+        .eq("user_id", USER_ID)
+        .gte("exam_date", new Date().toISOString())
+        .order("exam_date", { ascending: true })
+        .limit(4);
+
+      // Fetch weak topics (low mastery) for recommendations
+      const { data: weakTopics } = await supabase
+        .from("mastery_beliefs")
+        .select("p_know, topics(name, course_id, courses(title))")
+        .eq("user_id", USER_ID)
+        .lt("p_know", 0.6)
+        .order("p_know", { ascending: true })
+        .limit(4);
+
+      const items = [];
+
+      if (exams?.length) {
+        const exam = exams[0];
+        const dueStr = `Due ${new Date(exam.exam_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+
+        items.push({
+          id: "EXAM-1",
+          dueDate: dueStr,
+          course: exam.courses?.title || "",
+          title: `Prepare for ${exam.title}`,
+          description: exam.notes || `Upcoming ${exam.exam_type} exam.`,
+          sources: [],
+        });
+      }
+
+      if (weakTopics) {
+        weakTopics.forEach((wt, i) => {
+          const topic = wt.topics;
+          if (!topic) return;
+          items.push({
+            id: `TOPIC-${i + 1}`,
+            dueDate: "This week",
+            course: topic.courses?.title || "",
+            title: `Review: ${topic.name}`,
+            description: `Your mastery is at ${Math.round(wt.p_know * 100)}%. Focus on this topic to improve before upcoming assessments.`,
+            sources: [],
+          });
+        });
+      }
+
+      setPlanItems(items);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
   return (
     <div className="flex w-[332px] shrink-0 flex-col gap-4 rounded border border-[#393939] px-4 py-2">
       <div className="flex h-9 items-center justify-between border-b border-border-default pb-px">
@@ -123,9 +139,17 @@ export default function SuggestedPlan() {
       </div>
 
       <div className="flex flex-col">
-        {PLAN_ITEMS.map((item) => (
-          <PlanItem key={item.id} item={item} />
-        ))}
+        {loading ? (
+          <div className="py-4 text-center font-sans text-[11px] text-text-faint">
+            Loading…
+          </div>
+        ) : planItems.length === 0 ? (
+          <div className="py-4 text-center font-sans text-[11px] text-text-faint">
+            No suggestions right now
+          </div>
+        ) : (
+          planItems.map((item) => <PlanItem key={item.id} item={item} />)
+        )}
       </div>
     </div>
   );
