@@ -18,10 +18,7 @@ import {
 } from "lucide-react";
 import { getFileUrl, getFileText, saveFileText } from "../lib/workspace";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const TEXT_TYPES = new Set(["md", "txt", "doc", "file"]);
 const PDF_TYPES = new Set(["pdf"]);
