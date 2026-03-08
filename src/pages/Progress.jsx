@@ -156,13 +156,19 @@ export default function Progress() {
   const reviewData = loadReviewData(courseId);
   const totalTerms = reviewData?.terms?.length ?? 0;
 
-  // Flashcard stats — use most recent result per term
-  const termMap = new Map();
+  // Build a lookup from term string -> definition using stored study set
+  const defLookup = new Map();
+  (reviewData?.terms || []).forEach(t => defLookup.set(t.term, t.definition));
+
+  // Flashcard stats — use most recent result per term, enrich with definition
+  const termMap = new Map(); // term string -> { known, definition }
   flashcardResults.forEach(r => {
-    if (!termMap.has(r.term)) termMap.set(r.term, r.known);
+    if (!termMap.has(r.term)) {
+      termMap.set(r.term, { known: r.known, definition: defLookup.get(r.term) || "" });
+    }
   });
-  const knownCount   = [...termMap.values()].filter(Boolean).length;
-  const unknownCount = [...termMap.values()].filter(v => !v).length;
+  const knownCount    = [...termMap.values()].filter(v => v.known).length;
+  const unknownCount  = [...termMap.values()].filter(v => !v.known).length;
   const reviewedCount = termMap.size;
 
   // Quiz stats
@@ -279,27 +285,29 @@ export default function Progress() {
                 <BookOpen className="size-4 text-purple-400" />
                 <span className="font-sans text-[13px] font-semibold text-text-primary">Terms Breakdown</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-4">
                 {/* Still learning */}
-                <div className="flex flex-col gap-1.5">
-                  <span className="font-sans text-[11px] font-semibold uppercase tracking-wide text-red-400">Still Learning</span>
-                  <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto">
-                    {[...termMap.entries()].filter(([,v]) => !v).map(([term]) => (
-                      <span key={term} className="font-sans text-[12px] text-text-secondary truncate py-0.5 border-b border-border-default last:border-0">
-                        {term}
-                      </span>
+                <div className="flex flex-col gap-2">
+                  <span className="font-sans text-[11px] font-semibold uppercase tracking-wide text-red-400">Still Learning ({unknownCount})</span>
+                  <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
+                    {[...termMap.entries()].filter(([, v]) => !v.known).map(([term, { definition }]) => (
+                      <div key={term} className="flex flex-col gap-0.5 py-1.5 border-b border-border-default last:border-0">
+                        <span className="font-sans text-[12px] font-medium text-text-primary">{term}</span>
+                        {definition && <span className="font-sans text-[11px] text-text-faint leading-relaxed">{definition}</span>}
+                      </div>
                     ))}
                     {unknownCount === 0 && <span className="font-sans text-[11px] text-text-faint italic">None — great work!</span>}
                   </div>
                 </div>
                 {/* Mastered */}
-                <div className="flex flex-col gap-1.5">
-                  <span className="font-sans text-[11px] font-semibold uppercase tracking-wide text-accent-green">Mastered</span>
-                  <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto">
-                    {[...termMap.entries()].filter(([,v]) => v).map(([term]) => (
-                      <span key={term} className="font-sans text-[12px] text-text-secondary truncate py-0.5 border-b border-border-default last:border-0">
-                        {term}
-                      </span>
+                <div className="flex flex-col gap-2">
+                  <span className="font-sans text-[11px] font-semibold uppercase tracking-wide text-accent-green">Mastered ({knownCount})</span>
+                  <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
+                    {[...termMap.entries()].filter(([, v]) => v.known).map(([term, { definition }]) => (
+                      <div key={term} className="flex flex-col gap-0.5 py-1.5 border-b border-border-default last:border-0">
+                        <span className="font-sans text-[12px] font-medium text-text-primary">{term}</span>
+                        {definition && <span className="font-sans text-[11px] text-text-faint leading-relaxed">{definition}</span>}
+                      </div>
                     ))}
                     {knownCount === 0 && <span className="font-sans text-[11px] text-text-faint italic">Keep studying!</span>}
                   </div>

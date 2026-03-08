@@ -211,46 +211,110 @@ function CategoryPill({ cat }) {
 
 // ── Flashcards ─────────────────────────────────────────────────────────────
 function Flashcards({ terms, courseId, supabase }) {
-  const [idx,     setIdx]     = useState(0);
+  // deck = indices into terms[], reshuffled with "still learning" cards added back
+  const [deck,    setDeck]    = useState(() => terms.map((_, i) => i));
+  const [pos,     setPos]     = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [known,   setKnown]   = useState(new Set());
-  const [unknown, setUnknown] = useState(new Set());
+  const [known,   setKnown]   = useState(new Set());   // term strings mastered this session
+  const [unknown, setUnknown] = useState(new Set());   // term strings still learning
+  const [done,    setDone]    = useState(false);
 
-  const card     = terms[idx];
-  const total    = terms.length;
-  const reviewed = known.size + unknown.size;
+  const cardIdx = deck[pos];
+  const card    = terms[cardIdx];
+  const total   = terms.length;
 
-  function go(delta) {
+  function advance() {
     setFlipped(false);
-    setTimeout(() => setIdx(i => Math.max(0, Math.min(total - 1, i + delta))), 120);
+    setTimeout(() => {
+      if (pos + 1 >= deck.length) {
+        // end of current deck pass
+        const remaining = deck.filter(i => unknown.has(terms[i].term));
+        if (remaining.length === 0) {
+          setDone(true);
+        } else {
+          // Re-queue only the "still learning" cards, shuffled
+          const shuffled = [...remaining].sort(() => Math.random() - 0.5);
+          setDeck(shuffled);
+          setPos(0);
+        }
+      } else {
+        setPos(p => p + 1);
+      }
+    }, 120);
   }
+
   function markKnown() {
     recordFlashcard(supabase, courseId, card.term, true);
-    setKnown(s => new Set([...s, idx]));
-    go(+1);
+    setKnown(s => new Set([...s, card.term]));
+    setUnknown(s => { const n = new Set(s); n.delete(card.term); return n; });
+    advance();
   }
+
   function markUnknown() {
     recordFlashcard(supabase, courseId, card.term, false);
-    setUnknown(s => new Set([...s, idx]));
-    go(+1);
+    setUnknown(s => new Set([...s, card.term]));
+    setKnown(s => { const n = new Set(s); n.delete(card.term); return n; });
+    advance();
   }
-  function reset() { setIdx(0); setFlipped(false); setKnown(new Set()); setUnknown(new Set()); }
+
+  function reset() {
+    setDeck(terms.map((_, i) => i));
+    setPos(0);
+    setFlipped(false);
+    setKnown(new Set());
+    setUnknown(new Set());
+    setDone(false);
+  }
+
+  const reviewed = known.size + unknown.size;
+  const progress = total ? (known.size / total) * 100 : 0;
+
+  // ── Done screen ────────────────────────────────────────────────────────
+  if (done) {
+    return (
+      <div className="flex flex-col gap-4 max-w-2xl">
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-border-default bg-bg-elevated p-10 text-center">
+          <span className="text-4xl">🎉</span>
+          <p className="font-sans text-[20px] font-semibold text-text-primary">All cards mastered!</p>
+          <p className="font-sans text-[13px] text-text-secondary">
+            You got through all {total} terms. Nice work.
+          </p>
+          <button onClick={reset}
+            className="flex items-center gap-2 cursor-pointer rounded-xl bg-accent-blue px-6 py-2.5 font-sans text-[13px] font-medium text-white hover:brightness-110 transition-all">
+            <RotateCcw className="size-4" /> Study again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl">
+      {/* Header row */}
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] text-text-secondary">{idx + 1} / {total}</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[11px] text-text-secondary">{pos + 1} / {deck.length}</span>
+          {unknown.size > 0 && (
+            <span className="font-sans text-[10px] text-red-400/70 italic">
+              +{unknown.size} still learning
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-4">
           <span className="font-sans text-[11px] text-accent-green">{known.size} known</span>
           <span className="font-sans text-[11px] text-red-400">{unknown.size} learning</span>
-          <button onClick={reset} className="cursor-pointer text-text-secondary hover:text-text-primary transition-colors"><RotateCcw className="size-3.5" /></button>
+          <button onClick={reset} className="cursor-pointer text-text-secondary hover:text-text-primary transition-colors">
+            <RotateCcw className="size-3.5" />
+          </button>
         </div>
       </div>
 
+      {/* Progress bar — fills based on mastered / total */}
       <div className="h-1 w-full overflow-hidden rounded-full bg-bg-elevated">
-        <div className="h-full rounded-full bg-accent-blue transition-all duration-500" style={{ width: `${(reviewed / total) * 100}%` }} />
+        <div className="h-full rounded-full bg-accent-green transition-all duration-500" style={{ width: `${progress}%` }} />
       </div>
 
+      {/* Card */}
       <div onClick={() => setFlipped(v => !v)}
         className="relative flex min-h-[240px] cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border border-border-default bg-bg-elevated p-10 select-none transition-all hover:border-accent-blue/30 hover:bg-[#252528]">
         <CategoryPill cat={card.category} />
@@ -264,12 +328,14 @@ function Flashcards({ terms, courseId, supabase }) {
         )}
       </div>
 
+      {/* Controls */}
       <div className="flex items-center justify-between gap-3">
-        <button onClick={() => go(-1)} disabled={idx === 0}
+        <button onClick={() => { setFlipped(false); setTimeout(() => setPos(p => Math.max(0, p - 1)), 120); }}
+          disabled={pos === 0}
           className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors disabled:opacity-30">
           <ChevronLeft className="size-3.5" /> Prev
         </button>
-        {flipped && (
+        {flipped ? (
           <div className="flex items-center gap-2">
             <button onClick={markUnknown}
               className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-red-400/30 bg-red-400/10 px-4 py-2 font-sans text-[12px] text-red-400 hover:bg-red-400/20 transition-colors">
@@ -280,8 +346,14 @@ function Flashcards({ terms, courseId, supabase }) {
               <Check className="size-3.5" /> Got it
             </button>
           </div>
+        ) : (
+          <button onClick={() => setFlipped(true)}
+            className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors">
+            Flip card
+          </button>
         )}
-        <button onClick={() => go(+1)} disabled={idx === total - 1}
+        <button onClick={() => { setFlipped(false); setTimeout(() => setPos(p => Math.min(deck.length - 1, p + 1)), 120); }}
+          disabled={pos === deck.length - 1}
           className="flex items-center gap-1.5 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors disabled:opacity-30">
           Next <ChevronRight className="size-3.5" />
         </button>
