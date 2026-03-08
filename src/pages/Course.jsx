@@ -25,8 +25,11 @@ import {
 } from "lucide-react";
 import { supabase, USER_ID } from "../lib/supabase";
 import FileViewer from "../components/FileViewer";
+import OutlineModal from "../components/OutlineModal";
+import OutlineView from "../components/OutlineView";
+import { getOutline } from "../lib/outlineService";
 
-const TABS = ["Overview", "Content", "Files", "About"];
+const TABS = ["Overview", "Content", "Files", "Outline", "About"];
 
 export default function Course() {
   const { courseName } = useParams();
@@ -45,6 +48,10 @@ export default function Course() {
   const [activities, setActivities] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [outlineGenerated, setOutlineGenerated] = useState(false);
+  const [folderId, setFolderId] = useState(null);
+  const [showOutlineModal, setShowOutlineModal] = useState(false);
+  const [outlineData, setOutlineData] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -60,6 +67,24 @@ export default function Course() {
         return;
       }
       setCourse(courseRow);
+
+      // Load folder outline status
+      if (courseRow.folder_id) {
+        setFolderId(courseRow.folder_id);
+        const { data: folderRow } = await supabase
+          .from("folders")
+          .select("outline_generated")
+          .eq("id", courseRow.folder_id)
+          .single();
+        if (folderRow) {
+          setOutlineGenerated(!!folderRow.outline_generated);
+          if (folderRow.outline_generated) {
+            getOutline(courseRow.folder_id).then((data) => {
+              if (data) setOutlineData(data);
+            });
+          }
+        }
+      }
 
       const [topicsRes, examRes, actionsRes, filesRes, setsRes] =
         await Promise.all([
@@ -226,24 +251,53 @@ export default function Course() {
       </p>
 
       {/* Sub-nav — text + underline */}
-      <div className="mb-6 flex gap-6 border-b border-border-default">
-        {TABS.map((tab) => (
+      <div className="mb-6 flex items-center border-b border-border-default">
+        <div className="flex gap-6">
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`relative cursor-pointer pb-2.5 font-sans text-[13px] transition-colors ${
+                activeTab === tab
+                  ? "font-medium text-text-primary"
+                  : "text-text-faint hover:text-text-secondary"
+              }`}
+            >
+              {tab}
+              {activeTab === tab && (
+                <span className="absolute bottom-0 left-0 h-[2px] w-full rounded-full bg-text-primary" />
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto pb-2">
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`relative cursor-pointer pb-2.5 font-sans text-[13px] transition-colors ${
-              activeTab === tab
-                ? "font-medium text-text-primary"
-                : "text-text-faint hover:text-text-secondary"
+            onClick={() => !outlineGenerated && setShowOutlineModal(true)}
+            disabled={outlineGenerated}
+            className={`flex items-center gap-1.5 rounded px-3 py-1 font-sans text-[11px] font-medium transition-colors ${
+              outlineGenerated
+                ? "cursor-default bg-[#2a2a2a] text-text-faint"
+                : "cursor-pointer bg-white text-black hover:bg-gray-200"
             }`}
           >
-            {tab}
-            {activeTab === tab && (
-              <span className="absolute bottom-0 left-0 h-[2px] w-full rounded-full bg-text-primary" />
-            )}
+            {outlineGenerated ? "Outline Generated" : "Generate Outline"}
           </button>
-        ))}
+        </div>
       </div>
+
+      {showOutlineModal && folderId && (
+        <OutlineModal
+          folderId={folderId}
+          folderName={title}
+          onClose={() => setShowOutlineModal(false)}
+          onComplete={() => {
+            setOutlineGenerated(true);
+            getOutline(folderId).then((data) => {
+              if (data) setOutlineData(data);
+            });
+          }}
+        />
+      )}
 
       {/* Tab content + side cards */}
       <div className="flex flex-1 gap-10 pb-8">
@@ -252,9 +306,18 @@ export default function Course() {
             <OverviewTab topics={topics} mastery={mastery} course={course} />
           )}
           {activeTab === "Content" && (
-            <ContentTab topics={topics} mastery={mastery} />
+            <ContentTab outline={outlineData} />
           )}
           {activeTab === "Files" && <FilesTab files={files} />}
+          {activeTab === "Outline" && (
+            outlineData ? (
+              <OutlineView outline={outlineData} />
+            ) : (
+              <p className="py-12 text-center font-sans text-[13px] text-text-faint">
+                No outline generated yet. Click "Generate Outline" above to create one.
+              </p>
+            )
+          )}
           {activeTab === "About" && <AboutTab course={course} />}
         </div>
 
@@ -694,39 +757,101 @@ function OverviewTab({ topics, mastery, course }) {
 
 /* ---- Content Tab ---- */
 
-function ContentTab({ topics, mastery }) {
-  const sorted = [...topics].sort((a, b) => a.order_index - b.order_index);
+function ContentNode({ title, numbering, isTerminal, objectives, children, depth = 0 }) {
+  const [open, setOpen] = useState(depth < 1);
+  const hasChildren = children && children.length > 0;
 
   return (
-    <div className="flex flex-col gap-1">
-      {sorted.map((t) => {
-        const m = mastery[t.id];
-        const progress = m ? Math.round(m.p_know * 100) : 0;
-        return (
-          <button
-            key={t.id}
-            className="flex cursor-pointer items-center gap-4 rounded-md px-3 py-3 transition-colors hover:bg-[#2a2a2e]"
-          >
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-bg-elevated font-mono text-[12px] text-text-secondary">
-              {t.order_index}
-            </div>
-            <div className="flex flex-1 flex-col gap-1">
-              <span className="text-left font-sans text-[13px] font-medium text-text-primary">
-                {t.name}
-              </span>
-              <div className="flex h-1 overflow-hidden rounded-full bg-bg-elevated">
-                <div
-                  className={`h-full rounded-full ${progress === 100 ? "bg-accent-green" : "bg-accent-blue"}`}
-                  style={{ width: `${progress}%` }}
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-[#2a2a2e]"
+      >
+        {hasChildren ? (
+          open ? <ChevronDown className="size-3.5 shrink-0 text-text-faint" /> : <ChevronRight className="size-3.5 shrink-0 text-text-faint" />
+        ) : (
+          <span className="inline-block size-3.5 shrink-0" />
+        )}
+        <span className="font-mono text-[10px] text-text-faint">{numbering}</span>
+        <span
+          className={`flex-1 font-sans text-[13px] ${
+            depth === 0
+              ? "font-semibold text-text-primary"
+              : depth === 1
+                ? "font-medium text-text-primary"
+                : "text-text-secondary"
+          }`}
+        >
+          {title}
+        </span>
+        {isTerminal && objectives?.length > 0 && (
+          <span className="shrink-0 rounded bg-[#232323] px-1.5 py-0.5 font-mono text-[9px] text-text-faint">
+            {objectives.length} objective{objectives.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className={depth === 0 ? "ml-5" : "ml-6 border-l border-[#232323] pl-1"}>
+          {isTerminal && objectives?.length > 0 && (
+            <ul className="flex flex-col gap-0.5 px-3 py-1.5">
+              {objectives.map((o, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <span className="mt-[5px] size-1 shrink-0 rounded-full bg-accent-blue" />
+                  <span className="font-sans text-[11px] leading-[16px] text-text-secondary">{o}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {hasChildren && children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContentTab({ outline }) {
+  if (!outline || !outline.sections?.length) {
+    return (
+      <p className="py-12 text-center font-sans text-[13px] text-text-faint">
+        No outline generated yet. Generate one to see the course content structure.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {outline.sections.map((section, i) => (
+        <ContentNode
+          key={section.id || i}
+          title={section.title}
+          numbering={`${i + 1}`}
+          isTerminal={!!section.content}
+          objectives={section.objectives}
+          depth={0}
+        >
+          {section.subsections?.map((sub, j) => (
+            <ContentNode
+              key={sub.id || j}
+              title={sub.title}
+              numbering={`${i + 1}.${j + 1}`}
+              isTerminal={!!sub.content}
+              objectives={sub.objectives}
+              depth={1}
+            >
+              {sub.topics?.map((topic, k) => (
+                <ContentNode
+                  key={topic.id || k}
+                  title={topic.title}
+                  numbering={`${i + 1}.${j + 1}.${k + 1}`}
+                  isTerminal={!!topic.content}
+                  objectives={topic.objectives}
+                  depth={2}
                 />
-              </div>
-            </div>
-            <span className="w-10 text-right font-mono text-[11px] text-text-secondary">
-              {progress}%
-            </span>
-          </button>
-        );
-      })}
+              ))}
+            </ContentNode>
+          ))}
+        </ContentNode>
+      ))}
     </div>
   );
 }

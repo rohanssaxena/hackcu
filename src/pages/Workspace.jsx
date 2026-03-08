@@ -30,6 +30,9 @@ import {
   resolvePathToNode,
   uploadFiles,
   createFolder,
+  downloadFile,
+  deleteFile,
+  renameFile,
 } from "../lib/workspace";
 import FileViewer from "../components/FileViewer";
 import { useTabs } from "../contexts/TabContext";
@@ -371,6 +374,8 @@ export default function Workspace() {
                     setExpandedFolders(new Set());
                   }}
                   onFileClick={(file) => setViewingFile(file)}
+                  onRefresh={refreshTree}
+                  onToast={showToast}
                 />
               ))}
             </div>
@@ -424,8 +429,11 @@ export default function Workspace() {
   );
 }
 
-function FileContextMenu({ position, onClose }) {
+function FileContextMenu({ position, item, onClose, onOpen, onRefresh, onToast }) {
   const ref = useRef(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(item.name);
+  const renameRef = useRef(null);
 
   useEffect(() => {
     const handler = (e) => {
@@ -435,14 +443,72 @@ function FileContextMenu({ position, onClose }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  const items = [
-    { label: "Open", Icon: ExternalLink },
-    { label: "Download", Icon: Download },
+  useEffect(() => {
+    if (renaming) renameRef.current?.focus();
+  }, [renaming]);
+
+  const isFolder = item.type === "folder";
+
+  const handleOpen = () => { onOpen?.(item); onClose(); };
+
+  const handleDownload = async () => {
+    if (isFolder || !item.id) return onClose();
+    const result = await downloadFile(item.id, item.name);
+    if (result.error) onToast?.(result.error, true);
+    onClose();
+  };
+
+  const handleDelete = async () => {
+    if (isFolder || !item.id) return onClose();
+    const result = await deleteFile(item.id);
+    if (result.error) { onToast?.(result.error, true); }
+    else { onToast?.(`Deleted ${item.name}`); onRefresh?.(); }
+    onClose();
+  };
+
+  const commitRename = async () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === item.name || !item.id) {
+      setRenaming(false);
+      return;
+    }
+    const result = await renameFile(item.id, trimmed);
+    if (result.error) { onToast?.(result.error, true); }
+    else { onToast?.(`Renamed to ${trimmed}`); onRefresh?.(); }
+    setRenaming(false);
+    onClose();
+  };
+
+  if (renaming) {
+    return (
+      <div
+        ref={ref}
+        className="fixed z-50 min-w-[200px] rounded-md border border-border-default bg-[#1e1e1e] p-2 shadow-xl"
+        style={{ left: position.x, top: position.y }}
+      >
+        <input
+          ref={renameRef}
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename();
+            if (e.key === "Escape") onClose();
+          }}
+          onBlur={commitRename}
+          className="w-full rounded border border-border-default bg-[#111] px-2 py-1 font-sans text-[12px] text-text-primary outline-none focus:border-accent-blue"
+        />
+      </div>
+    );
+  }
+
+  const menuItems = [
+    { label: "Open", Icon: ExternalLink, action: handleOpen },
+    ...(!isFolder ? [{ label: "Download", Icon: Download, action: handleDownload }] : []),
     { divider: true },
-    { label: "Rename", Icon: Pencil },
-    { label: "Delete", Icon: Trash2, danger: true },
-    { divider: true },
-    { label: "More Info", Icon: Info },
+    ...(!isFolder ? [{ label: "Rename", Icon: Pencil, action: () => setRenaming(true) }] : []),
+    ...(!isFolder ? [{ label: "Delete", Icon: Trash2, danger: true, action: handleDelete }] : []),
+    ...(!isFolder ? [{ divider: true }] : []),
+    { label: "More Info", Icon: Info, action: () => { onToast?.(`${item.name} — ${item.size || "folder"}`); onClose(); } },
   ];
 
   return (
@@ -451,22 +517,19 @@ function FileContextMenu({ position, onClose }) {
       className="fixed z-50 min-w-[150px] rounded-md border border-border-default bg-[#1e1e1e] py-1 shadow-xl"
       style={{ left: position.x, top: position.y }}
     >
-      {items.map((item, i) =>
-        item.divider ? (
+      {menuItems.map((mi, i) =>
+        mi.divider ? (
           <div key={i} className="mx-2 my-1 h-px bg-border-default" />
         ) : (
           <button
             key={i}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
+            onClick={(e) => { e.stopPropagation(); mi.action?.(); }}
             className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 font-sans text-[12px] transition-colors hover:bg-[#2a2a2a] ${
-              item.danger ? "text-red-400" : "text-text-primary"
+              mi.danger ? "text-red-400" : "text-text-primary"
             }`}
           >
-            <item.Icon className="size-3" />
-            {item.label}
+            <mi.Icon className="size-3" />
+            {mi.label}
           </button>
         ),
       )}
@@ -474,7 +537,7 @@ function FileContextMenu({ position, onClose }) {
   );
 }
 
-function ThreeDotButton({ item }) {
+function ThreeDotButton({ item, onOpen, onRefresh, onToast }) {
   const [menuPos, setMenuPos] = useState(null);
   const btnRef = useRef(null);
 
@@ -494,7 +557,14 @@ function ThreeDotButton({ item }) {
         <MoreHorizontal className="size-3.5" />
       </button>
       {menuPos && (
-        <FileContextMenu position={menuPos} onClose={() => setMenuPos(null)} />
+        <FileContextMenu
+          position={menuPos}
+          item={item}
+          onClose={() => setMenuPos(null)}
+          onOpen={onOpen}
+          onRefresh={onRefresh}
+          onToast={onToast}
+        />
       )}
     </>
   );
@@ -507,6 +577,8 @@ function FileRow({
   onNavigate,
   onNavigateChild,
   onFileClick,
+  onRefresh,
+  onToast,
 }) {
   const Icon = getFileIcon(item);
   const isFolder = item.type === "folder";
@@ -557,7 +629,7 @@ function FileRow({
         <span className="w-28 text-right font-sans text-[11px] text-text-secondary">
           {item.modified || ""}
         </span>
-        <ThreeDotButton item={item} />
+        <ThreeDotButton item={item} onOpen={(f) => onFileClick?.(f)} onRefresh={onRefresh} onToast={onToast} />
       </div>
 
       {isFolder && expanded && item.children && (
@@ -595,7 +667,7 @@ function FileRow({
                 <span className="w-28 text-right font-sans text-[11px] text-text-secondary">
                   {child.modified || ""}
                 </span>
-                <ThreeDotButton item={child} />
+                <ThreeDotButton item={child} onOpen={(f) => onFileClick?.(f)} onRefresh={onRefresh} onToast={onToast} />
               </div>
             );
           })}

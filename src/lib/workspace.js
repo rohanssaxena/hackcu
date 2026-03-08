@@ -260,6 +260,58 @@ export async function saveFileText(fileId, content) {
   return { ok: true };
 }
 
+/**
+ * Download a file by triggering a browser save dialog.
+ */
+export async function downloadFile(fileId, filename) {
+  const result = await getFileUrl(fileId);
+  if (!result?.url) return { error: "Could not get download URL" };
+
+  const a = document.createElement("a");
+  a.href = result.url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return { ok: true };
+}
+
+/**
+ * Delete a file from storage and the database.
+ */
+export async function deleteFile(fileId) {
+  const { data: file } = await supabase
+    .from("course_files")
+    .select("storage_path")
+    .eq("id", fileId)
+    .maybeSingle();
+
+  if (!file) return { error: "File not found" };
+
+  await supabase.storage.from(BUCKET).remove([file.storage_path]);
+
+  const { error } = await supabase
+    .from("course_files")
+    .delete()
+    .eq("id", fileId);
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Rename a file (updates filename in the database).
+ */
+export async function renameFile(fileId, newName) {
+  const { error } = await supabase
+    .from("course_files")
+    .update({ filename: newName })
+    .eq("id", fileId);
+
+  if (error) return { error: error.message };
+  return { ok: true };
+}
+
 // ---- Helpers ----
 
 function formatBytes(bytes) {

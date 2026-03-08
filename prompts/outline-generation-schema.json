@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "required": ["title", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string" },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "content"],
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "content": { "type": "boolean" },
+          "objectives": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "practice_guidance": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "subsections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["title", "content"],
+              "additionalProperties": false,
+              "properties": {
+                "title": { "type": "string" },
+                "content": { "type": "boolean" },
+                "objectives": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "practice_guidance": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["title", "content"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "title": { "type": "string" },
+                      "content": { "type": "boolean" },
+                      "objectives": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      },
+                      "practice_guidance": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
