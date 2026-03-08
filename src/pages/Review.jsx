@@ -478,6 +478,7 @@ export default function Review() {
   const [confirmRegen, setConfirmRegen] = useState(false);
   const [addingMore,   setAddingMore]   = useState(false);
   const [moreSelected, setMoreSelected] = useState(new Set());
+  const [moreLocalFiles, setMoreLocalFiles] = useState([]);
   const [localUploadFiles, setLocalUploadFiles] = useState([]); // File objects from disk
 
   // Load saved data + files whenever course changes
@@ -569,17 +570,26 @@ export default function Review() {
   async function generateMore() {
     const key = getAnthropicKey();
     if (!key) { setError("Add VITE_ANTHROPIC_API_KEY to .env and restart dev server."); return; }
-    if (!moreSelected.size) { setError("Select at least one file."); return; }
+    if (!moreSelected.size && !moreLocalFiles.length) { setError("Select at least one file or upload a PDF."); return; }
     setGenerating(true);
     setError(null);
-    const toProcess = files.filter(f => moreSelected.has(f.id));
+    const canvasMore = files.filter(f => moreSelected.has(f.id));
+    const totalMore = canvasMore.length + moreLocalFiles.length;
     const newTerms = [], newQs = [];
     try {
-      for (let i = 0; i < toProcess.length; i++) {
-        const f = toProcess[i];
-        setProgress(`Analyzing ${f.display_name || f.filename} (${i + 1}/${toProcess.length})...`);
+      for (let i = 0; i < canvasMore.length; i++) {
+        const f = canvasMore[i];
+        setProgress(`Analyzing ${f.display_name || f.filename} (${i + 1}/${totalMore})...`);
         const extracted = await extractFromFile(f, token);
         const src = f.display_name || f.filename;
+        (extracted.terms     || []).forEach(t => newTerms.push({ ...t, source: src }));
+        (extracted.questions || []).forEach(q => newQs.push({   ...q, source: src }));
+      }
+      for (let i = 0; i < moreLocalFiles.length; i++) {
+        const f = moreLocalFiles[i];
+        setProgress(`Analyzing ${f.name} (${canvasMore.length + i + 1}/${totalMore})...`);
+        const extracted = await extractFromLocalFile(f);
+        const src = f.name;
         (extracted.terms     || []).forEach(t => newTerms.push({ ...t, source: src }));
         (extracted.questions || []).forEach(q => newQs.push({   ...q, source: src }));
       }
@@ -594,6 +604,7 @@ export default function Review() {
       setData(result);
       setAddingMore(false);
       setMoreSelected(new Set());
+      setMoreLocalFiles([]);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -660,9 +671,11 @@ export default function Review() {
               </p>
             )}
 
-            {/* Local file upload */}
+            {/* Local file upload — always shown */}
             <div className="flex flex-col gap-2 border-t border-border-default pt-3">
-              <p className="font-sans text-[12px] font-medium text-text-secondary">Or upload your own notes</p>
+              <p className="font-sans text-[12px] font-medium text-text-secondary">
+                {files.length ? "Also upload your own notes" : "Upload your own notes"}
+              </p>
               <label className="flex w-fit items-center gap-2 cursor-pointer rounded-lg border border-border-default px-4 py-2 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors">
                 <Upload className="size-3.5" />
                 Choose PDFs from your computer
@@ -763,11 +776,44 @@ export default function Review() {
                 />
               )}
               {!filesLoading && files.filter(f => !ingestedSources.has(f.display_name || f.filename)).length === 0 && (
-                <p className="font-sans text-[12px] text-text-secondary">All available PDFs have already been added.</p>
+                <p className="font-sans text-[12px] text-text-secondary">All Canvas PDFs have already been added. Upload more below.</p>
               )}
+
+              {/* Local upload for add-more */}
+              <div className="flex flex-col gap-2 border-t border-border-default pt-3">
+                <p className="font-sans text-[11px] text-text-faint uppercase tracking-wide">Or upload from your computer</p>
+                <label className="flex w-fit items-center gap-2 cursor-pointer rounded-lg border border-border-default px-3 py-1.5 font-sans text-[12px] text-text-secondary hover:bg-[#2e2e2e] hover:text-text-primary transition-colors">
+                  <Upload className="size-3.5" />
+                  Choose PDFs
+                  <input type="file" accept=".pdf" multiple className="hidden"
+                    onChange={(e) => {
+                      const picked = [...e.target.files];
+                      setMoreLocalFiles(prev => {
+                        const existing = new Set(prev.map(f => f.name));
+                        return [...prev, ...picked.filter(f => !existing.has(f.name))];
+                      });
+                    }}
+                  />
+                </label>
+                {moreLocalFiles.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    {moreLocalFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 rounded px-2 py-1 bg-[#2a2a2e]">
+                        <FileText className="size-3.5 shrink-0 text-red-400" />
+                        <span className="flex-1 truncate font-sans text-[12px] text-text-primary">{f.name}</span>
+                        <button onClick={() => setMoreLocalFiles(prev => prev.filter((_, j) => j !== i))}
+                          className="cursor-pointer text-text-faint hover:text-red-400 transition-colors">
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {error && <p className="font-sans text-[12px] text-red-400">{error}</p>}
               <button onClick={generateMore}
-                disabled={generating || !moreSelected.size}
+                disabled={generating || (!moreSelected.size && !moreLocalFiles.length)}
                 className="flex w-fit items-center gap-2 cursor-pointer rounded-xl bg-accent-blue px-5 py-2.5 font-sans text-[13px] font-medium text-white hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                 {generating
                   ? <><Loader2 className="size-4 animate-spin" /><span className="ml-1">{progress || "Generating..."}</span></>

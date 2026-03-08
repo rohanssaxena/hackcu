@@ -342,6 +342,15 @@ function CanvasCourseFolder({ course }) {
             </div>
           )}
 
+          {/* Always-visible upload button */}
+          <label className="mt-2 flex w-fit items-center gap-1.5 cursor-pointer rounded border border-dashed border-border-default px-3 py-1.5 font-sans text-[11px] text-text-faint hover:border-accent-blue hover:text-accent-blue transition-colors">
+            <Upload className="size-3" />
+            Upload your own notes
+            <input type="file" accept=".pdf,.pptx,.docx,.txt,.md" multiple className="hidden"
+              onClick={(e) => e.stopPropagation()}
+              onChange={handleUpload} />
+          </label>
+
           {/* Toast */}
           {uploadToast && (
             <div className="mt-1 flex items-center gap-1.5 rounded-lg bg-accent-green/10 border border-accent-green/30 px-3 py-1.5">
@@ -483,7 +492,7 @@ export default function Workspace() {
             </div>
             <button className="flex cursor-pointer items-center gap-1.5 rounded border border-border-subtle px-2 py-1 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"><ArrowUpDown className="size-3" /><span className="font-sans text-[11px]">Sort</span></button>
             <button className="flex cursor-pointer items-center gap-1.5 rounded border border-border-subtle px-2 py-1 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"><Filter className="size-3" /><span className="font-sans text-[11px]">Filter</span></button>
-            <button className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-3 py-1 text-white transition-colors hover:brightness-110"><Plus className="size-3" /><span className="font-sans text-[11px] font-medium">New file</span></button>
+<button className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-3 py-1 text-white transition-colors hover:brightness-110"><Plus className="size-3" /><span className="font-sans text-[11px] font-medium">New file</span></button>
           </div>
         </div>
 
