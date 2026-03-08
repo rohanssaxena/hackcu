@@ -31,6 +31,7 @@ export default function UpcomingAssignments({ courses, loading }) {
         ...a,
         courseCode: c.courseCode,
         courseName: c.shortName,
+        courseId: c.id,
       }))
     )
     .filter((a) => !a.submitted && a.dueAt)
@@ -72,9 +73,12 @@ export default function UpcomingAssignments({ courses, loading }) {
       {!loading && items.length > 0 && (
         <div className="flex flex-col pt-1">
           {items.map((item) => (
-            <div
+            <a
               key={item.id}
-              className="flex items-center gap-3 rounded px-1 py-1.5 transition-colors hover:bg-[#2a2a2e] cursor-pointer"
+              href={`https://canvas.colorado.edu/courses/${item.courseId}/assignments/${item.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-3 rounded px-1 py-1.5 transition-colors hover:bg-[#2a2a2e] cursor-pointer group"
             >
               {/* Course badge */}
               <span className="font-mono text-[10px] text-text-secondary shrink-0 w-[64px] truncate">
@@ -82,7 +86,7 @@ export default function UpcomingAssignments({ courses, loading }) {
               </span>
 
               {/* Assignment name */}
-              <span className="font-sans text-[12px] text-text-primary flex-1 truncate">
+              <span className="font-sans text-[12px] text-text-primary flex-1 truncate group-hover:text-accent-blue transition-colors">
                 {item.name}
               </span>
 
@@ -90,7 +94,7 @@ export default function UpcomingAssignments({ courses, loading }) {
               <span className={`font-mono text-[10px] shrink-0 ${getDueColor(item.dueAt)}`}>
                 {formatDue(item.dueAt)}
               </span>
-            </div>
+            </a>
           ))}
         </div>
       )}

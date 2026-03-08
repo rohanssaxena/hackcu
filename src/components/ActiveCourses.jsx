@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { TrendingUp } from "lucide-react";
 
 // Returns days until the next upcoming assignment for this course
@@ -160,16 +159,18 @@ export default function ActiveCourses({ courses, loading }) {
                     const label = h === null ? "" : h < 24 ? "today"
                       : h < 48 ? "tomorrow"
                       : `${Math.ceil(h / 24)}d`;
+                    const canvasUrl = `https://canvas.colorado.edu/courses/${course.id}/assignments/${a.id}`;
                     return (
-                      <div key={a.id} className="flex items-center gap-2 pl-3">
+                      <a key={a.id} href={canvasUrl} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-2 pl-3 rounded hover:bg-[#2a2a2e] transition-colors cursor-pointer group">
                         <span className="size-1 rounded-full bg-border-default shrink-0" />
-                        <span className="font-sans text-[11px] text-text-secondary truncate flex-1">
+                        <span className="font-sans text-[11px] text-text-secondary truncate flex-1 group-hover:text-text-primary transition-colors">
                           {a.name}
                         </span>
                         <span className={`font-mono text-[10px] shrink-0 ${color}`}>
                           {label}
                         </span>
-                      </div>
+                      </a>
                     );
                   })}
                   {totalDue > 3 && (
