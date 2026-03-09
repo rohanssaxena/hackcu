@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Layers, ListChecks, Sparkles, Loader2, FileText,
-  Check, X, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Upload,
+  Check, X, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle, Upload, Download,
 } from "lucide-react";
 import { getFiles } from "../services/canvasAPI";
 import { useCourse } from "../context/CourseContext";
@@ -637,6 +637,43 @@ export default function Review() {
   function handleRegenClick() { setConfirmRegen(true); }
   function handleClear() { clearCache(courseId); deleteFromSupabase(supabase, courseId); setData(null); setConfirmRegen(false); }
 
+  function handleExport() {
+    if (!data) return;
+    const courseLabel = activeCourse?.course_code || "course";
+    const lines = [];
+    lines.push("MICRO STUDY SET");
+    lines.push(courseLabel + " — " + courseName);
+    lines.push("Generated: " + new Date(data.generatedAt || Date.now()).toLocaleDateString());
+    lines.push("=".repeat(60));
+    lines.push("");
+    lines.push("FLASHCARD TERMS (" + (data.terms?.length || 0) + ")");
+    lines.push("-".repeat(40));
+    (data.terms || []).forEach((t, i) => {
+      lines.push((i + 1) + ". " + t.term);
+      lines.push("   " + t.definition);
+      lines.push("");
+    });
+    lines.push("=".repeat(60));
+    lines.push("");
+    lines.push("QUIZ QUESTIONS (" + (data.questions?.length || 0) + ")");
+    lines.push("-".repeat(40));
+    (data.questions || []).forEach((q, i) => {
+      lines.push((i + 1) + ". " + q.question);
+      (q.options || []).forEach((opt, j) => {
+        const marker = j === q.correct ? "✓" : " ";
+        lines.push("   [" + marker + "] " + opt);
+      });
+      lines.push("");
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = courseLabel.replace(/\s+/g, "_") + "_study_set.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const ingestedSources = new Set((data?.terms || []).map(t => t.source));
 
   async function generateMore() {
@@ -711,6 +748,10 @@ export default function Review() {
             <span className="font-mono text-[11px] text-text-faint">
               {data.terms?.length} terms · {data.questions?.length} questions
             </span>
+            <button onClick={handleExport}
+              className="flex items-center gap-1.5 font-sans text-[11px] text-text-secondary hover:text-accent-blue cursor-pointer transition-colors">
+              <Download className="size-3" /> Export .txt
+            </button>
             <button onClick={handleRegenClick}
               className="font-sans text-[11px] text-text-secondary hover:text-yellow-400 cursor-pointer transition-colors">
               Regenerate
