@@ -26,9 +26,9 @@ export async function fetchFolderTree() {
       name: f.name,
       type: "folder",
       modified: formatRelative(f.last_accessed_at || f.updated_at),
+      children: [],
       outline_generated: !!f.outline_generated,
       lc_generated: !!f.lc_generated,
-      children: [],
     });
   }
 
@@ -253,9 +253,38 @@ export async function downloadFile(fileId, filename) {
 }
 
 /**
- * Delete a folder (and its children via CASCADE).
+ * Delete a folder and all its contents (subfolders, files).
  */
 export async function deleteFolder(folderId) {
+  const { data: folder } = await supabase
+    .from("folders")
+    .select("id, name")
+    .eq("id", folderId)
+    .eq("user_id", USER_ID)
+    .single();
+
+  if (!folder) return { error: "Folder not found" };
+
+  const { data: children } = await supabase
+    .from("folders")
+    .select("id")
+    .eq("parent_id", folderId);
+
+  for (const child of children || []) {
+    const err = await deleteFolder(child.id);
+    if (err?.error) return err;
+  }
+
+  const { data: files } = await supabase
+    .from("course_files")
+    .select("id, storage_path")
+    .eq("folder_id", folderId);
+
+  for (const file of files || []) {
+    await supabase.storage.from(BUCKET).remove([file.storage_path]);
+    await supabase.from("course_files").delete().eq("id", file.id);
+  }
+
   const { error } = await supabase
     .from("folders")
     .delete()
@@ -263,7 +292,7 @@ export async function deleteFolder(folderId) {
     .eq("user_id", USER_ID);
 
   if (error) return { error: error.message };
-  return { ok: true };
+  return { ok: true, name: folder.name };
 }
 
 /**
@@ -284,20 +313,6 @@ export async function deleteFile(fileId) {
     .from("course_files")
     .delete()
     .eq("id", fileId);
-
-  if (error) return { error: error.message };
-  return { ok: true };
-}
-
-/**
- * Rename a folder.
- */
-export async function renameFolder(folderId, newName) {
-  const { error } = await supabase
-    .from("folders")
-    .update({ name: newName })
-    .eq("id", folderId)
-    .eq("user_id", USER_ID);
 
   if (error) return { error: error.message };
   return { ok: true };

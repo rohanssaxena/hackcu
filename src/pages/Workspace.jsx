@@ -463,12 +463,15 @@ function FileContextMenu({ position, item, onClose, onOpen, onRefresh, onToast }
   };
 
   const handleDelete = async () => {
-    if (!item.id) return onClose();
-    const result = isFolder
-      ? await deleteFolder(item.id)
-      : await deleteFile(item.id);
-    if (result.error) { onToast?.(result.error, true); }
-    else { onToast?.(`Deleted ${item.name}`); onRefresh?.(); }
+    if (isFolder) {
+      const result = await deleteFolder(item.id);
+      if (result.error) { onToast?.(result.error, true); }
+      else { onToast?.(`Deleted folder ${result.name}`); onRefresh?.(); }
+    } else if (item.id) {
+      const result = await deleteFile(item.id);
+      if (result.error) { onToast?.(result.error, true); }
+      else { onToast?.(`Deleted ${item.name}`); onRefresh?.(); }
+    }
     onClose();
   };
 
@@ -513,7 +516,7 @@ function FileContextMenu({ position, item, onClose, onOpen, onRefresh, onToast }
     { divider: true },
     ...(!isFolder ? [{ label: "Rename", Icon: Pencil, action: () => setRenaming(true) }] : []),
     { label: "Delete", Icon: Trash2, danger: true, action: handleDelete },
-    ...(!isFolder ? [{ divider: true }] : []),
+    { divider: true },
     { label: "More Info", Icon: Info, action: () => { onToast?.(`${item.name} — ${item.size || "folder"}`); onClose(); } },
   ];
 
@@ -628,7 +631,7 @@ function FileRow({
           <span className="font-sans text-[13px] leading-[19.5px] text-text-primary group-hover:text-white">
             {item.name}
           </span>
-          {isFolder && (item.outline_generated || item.lc_generated) && (
+          {isFolder && (
             <span className="flex items-center gap-1">
               {item.outline_generated && (
                 <span className="rounded bg-accent-blue/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-blue">
@@ -637,7 +640,7 @@ function FileRow({
               )}
               {item.lc_generated && (
                 <span className="rounded bg-accent-green/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-green">
-                  lesson plan
+                  Lesson Plan
                 </span>
               )}
             </span>
@@ -680,7 +683,7 @@ function FileRow({
                   <span className="font-sans text-[13px] leading-[19.5px] text-text-primary">
                     {child.name}
                   </span>
-                  {isChildFolder && (child.outline_generated || child.lc_generated) && (
+                  {isChildFolder && (
                     <span className="flex items-center gap-1">
                       {child.outline_generated && (
                         <span className="rounded bg-accent-blue/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-blue">
@@ -689,7 +692,7 @@ function FileRow({
                       )}
                       {child.lc_generated && (
                         <span className="rounded bg-accent-green/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-green">
-                          lesson plan
+                          Lesson Plan
                         </span>
                       )}
                     </span>
@@ -744,7 +747,7 @@ function FileCard({ item, onNavigate, onFileClick }) {
           )}
           {item.lc_generated && (
             <span className="rounded bg-accent-green/20 px-1.5 py-0.5 font-sans text-[9px] font-medium text-accent-green">
-              lesson plan
+              Lesson Plan
             </span>
           )}
         </span>

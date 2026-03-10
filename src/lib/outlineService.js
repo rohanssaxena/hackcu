@@ -3,20 +3,6 @@ import { supabase } from "./supabase";
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "";
 
 /**
- * Fetch folder name by id.
- */
-export async function getFolderName(folderId) {
-  const { data, error } = await supabase
-    .from("folders")
-    .select("name")
-    .eq("id", folderId)
-    .single();
-
-  if (error || !data) return null;
-  return data.name;
-}
-
-/**
  * Fetch files that will be indexed for a given folder.
  */
 export async function getFilesForFolder(folderId) {
@@ -61,7 +47,7 @@ export async function getOutline(folderId) {
   if (contentIds.length) {
     const { data, error } = await supabase
       .from("objectives")
-      .select("content_node, objective, weight")
+      .select("id, content_node, objective, weight")
       .in("content_node", contentIds);
     if (error) throw new Error(error.message);
     objectives = data || [];
@@ -70,7 +56,11 @@ export async function getOutline(folderId) {
   const objMap = new Map();
   for (const obj of objectives) {
     if (!objMap.has(obj.content_node)) objMap.set(obj.content_node, []);
-    objMap.get(obj.content_node).push({ objective: obj.objective, weight: obj.weight });
+    objMap.get(obj.content_node).push({
+      id: obj.id,
+      objective: obj.objective,
+      weight: obj.weight,
+    });
   }
 
   const groupMap = new Map();
@@ -112,6 +102,19 @@ export async function getOutline(folderId) {
   roots.sort((a, b) => a.order - b.order);
 
   return { title: null, nodes: roots };
+}
+
+/**
+ * Get total estimated time (minutes) for a content node from its phases.
+ */
+export async function getEstimatedTimeForContentNode(contentNodeId) {
+  const { data: phases, error } = await supabase
+    .from("phases")
+    .select("estimated_time_minutes")
+    .eq("content_node", contentNodeId);
+
+  if (error) return 0;
+  return (phases || []).reduce((s, p) => s + (p.estimated_time_minutes || 0), 0);
 }
 
 /**
@@ -238,4 +241,42 @@ export async function requestContentGeneration(folderId, onEvent) {
       }
     }
   }
+}
+
+/**
+ * Request drill set generation from the server.
+ * @param {object} opts
+ * @param {string} opts.folderId - Folder UUID
+ * @param {string} opts.userId - User UUID
+ * @param {string[]} opts.objectiveIds - Ordered list of objective UUIDs
+ * @param {string} [opts.title] - Set title (default "Drill")
+ * @param {number} [opts.questionCount] - Desired number of questions (optional)
+ * @returns {Promise<{ set_id: string, question_count: number }>}
+ */
+export async function requestDrillGeneration({
+  folderId,
+  userId,
+  objectiveIds,
+  title,
+  questionCount,
+  context,
+}) {
+  const res = await fetch(`${SERVER_URL}/api/agents/drill/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      folder_id: folderId,
+      user_id: userId,
+      objective_ids: objectiveIds,
+      title: title || "Drill",
+      question_count: questionCount,
+      context: context ?? undefined,
+    }),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.success) {
+    throw new Error(body.error || "Drill generation failed");
+  }
+  return { set_id: body.set_id, question_count: body.question_count };
 }

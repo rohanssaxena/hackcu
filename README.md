@@ -25,7 +25,6 @@ npm install
 cd server && npm install && cd ..
 
 # Start dev server (single server: API + frontend with HMR)
-# Run from project root (not from server/)
 npm run dev
 
 # Build for production

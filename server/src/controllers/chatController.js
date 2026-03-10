@@ -8,7 +8,7 @@ const MODEL = "claude-haiku-4-5-20251001";
 const MAX_TOOL_ROUNDS = 10;
 const SYSTEM_PROMPT = `You are a study assistant with access to tools that manage folders, outlines, and learning content. Answer directly and concisely. No filler, no fluff, no emojis. Write like a knowledgeable friend texting back -- short sentences, plain language. Use LaTeX ($..$ inline, $$...$$ block) for math. Use markdown only when structure genuinely helps (lists, code blocks). Never use headings for short answers. Never say "Great question" or similar pleasantries.
 
-When the user asks you to do something (create a folder, generate an outline, etc.), use the appropriate tool. If you need to look up a folder by name first, call list_folders. For practice exams and progress, use list_practice_exams and get_progress. Always confirm what you did after a tool call.`;
+When the user asks you to do something (create a folder, generate an outline, etc.), use the appropriate tool. If you need to look up a folder by name first, call list_folders. Always confirm what you did after a tool call.`;
 
 export async function listConversations(req, res) {
   try {
@@ -93,11 +93,13 @@ export async function sendMessage(req, res) {
     const supabase = getSupabase();
     const anthropic = getAnthropic();
     const { id } = req.params;
-    const { content } = req.body;
+    const { content, mode = "ask" } = req.body;
 
     if (!content?.trim()) {
       return res.status(400).json({ error: "Message content is required" });
     }
+
+    const useTools = mode === "agent" || mode === "act";
 
     await supabase
       .from("chat_messages")
@@ -128,6 +130,7 @@ export async function sendMessage(req, res) {
         messages,
         res,
         (text) => { fullText += text; },
+        useTools,
       );
 
       const toolUseBlocks = response.content.filter((b) => b.type === "tool_use");
@@ -234,14 +237,18 @@ function buildMessageHistory(rows) {
   return messages;
 }
 
-async function runStreamedResponse(anthropic, messages, res, onText) {
-  const stream = anthropic.messages.stream({
+const ASK_MODE_PROMPT = `You are a study assistant in chat-only mode. You cannot perform actions, use tools, or access the user's folders and files. Answer questions and give advice using only your knowledge. If the user asks you to do something (create a folder, list files, generate an outline, etc.), politely explain that they need to switch to Agent mode to perform actions.`;
+
+async function runStreamedResponse(anthropic, messages, res, onText, useTools = true) {
+  const opts = {
     model: MODEL,
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    tools,
+    system: useTools ? SYSTEM_PROMPT : ASK_MODE_PROMPT,
     messages,
-  });
+  };
+  if (useTools) opts.tools = tools;
+
+  const stream = anthropic.messages.stream(opts);
 
   return new Promise((resolve, reject) => {
     let response = null;

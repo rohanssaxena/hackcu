@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ChevronRight,
@@ -147,18 +147,38 @@ function ContentNodeDetail({ node }) {
   );
 }
 
-function TreeNode({ node, numbering, depth = 0, isLast = false }) {
+function TreeNode({
+  node,
+  numbering,
+  depth = 0,
+  isLast = false,
+  progressMap = {},
+  ancestors = [],
+  onHoverBreadcrumb,
+}) {
   const isGroup = node.type === "group";
   const kids = node.nodes || node.children || [];
   const hasChildren = isGroup && kids.length > 0;
   const [open, setOpen] = useState(depth < 2);
   const contentCount = useMemo(() => (isGroup ? countContentNodes(node) : 0), [node, isGroup]);
 
+  const path = [...ancestors, node];
+  const handleMouseEnter = useCallback(() => {
+    if (onHoverBreadcrumb) {
+      onHoverBreadcrumb(path.map((n) => n.title));
+    }
+  }, [onHoverBreadcrumb, path]);
+  const handleMouseLeave = useCallback(() => {
+    if (onHoverBreadcrumb) onHoverBreadcrumb(null);
+  }, [onHoverBreadcrumb]);
+
   return (
     <div className="relative">
       {/* Row */}
       <button
         onClick={() => setOpen((v) => !v)}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         className={`group flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-[5px] text-left transition-colors hover:bg-[#1a1a1e] ${
           depth === 0 ? "mt-0.5" : ""
         }`}
@@ -211,6 +231,11 @@ function TreeNode({ node, numbering, depth = 0, isLast = false }) {
               {contentCount} topic{contentCount !== 1 ? "s" : ""}
             </span>
           )}
+          {node.type === "content" && node.id && progressMap[node.id]?.total > 0 && (
+            <span className="rounded bg-accent-blue/10 px-1.5 py-[1px] font-mono text-[9px] font-medium text-accent-blue/80">
+              {progressMap[node.id].percent}%
+            </span>
+          )}
           {node.type === "content" && node.objectives?.length > 0 && (
             <span className="rounded bg-accent-blue/10 px-1.5 py-[1px] font-mono text-[9px] text-accent-blue/70">
               {node.objectives.length} obj
@@ -235,6 +260,9 @@ function TreeNode({ node, numbering, depth = 0, isLast = false }) {
                 numbering={`${numbering}.${i + 1}`}
                 depth={depth + 1}
                 isLast={i === kids.length - 1}
+                progressMap={progressMap}
+                ancestors={path}
+                onHoverBreadcrumb={onHoverBreadcrumb}
               />
             ))}
         </div>
@@ -243,8 +271,9 @@ function TreeNode({ node, numbering, depth = 0, isLast = false }) {
   );
 }
 
-function FormattedView({ outline }) {
+function FormattedView({ outline, progressMap = {}, showHoverBreadcrumb = false }) {
   const roots = outline.nodes || [];
+  const [hoverBreadcrumb, setHoverBreadcrumb] = useState(null);
 
   const totalGroups = useMemo(() => {
     function count(nodes) {
@@ -264,25 +293,50 @@ function FormattedView({ outline }) {
     <div className="flex flex-col gap-3">
       {/* Stats bar */}
       <div className="flex items-center gap-4 rounded-md border border-[#1e1e1e] bg-[#111] px-3 py-2">
-        <div className="flex items-center gap-1.5">
-          <Folder className="size-3 text-amber-400/60" />
-          <span className="font-sans text-[11px] text-text-secondary">
-            <span className="font-medium text-text-primary">{totalGroups}</span> group{totalGroups !== 1 ? "s" : ""}
-          </span>
-        </div>
-        <div className="h-3 w-px bg-[#222]" />
-        <div className="flex items-center gap-1.5">
-          <BookOpen className="size-3 text-accent-blue/60" />
-          <span className="font-sans text-[11px] text-text-secondary">
-            <span className="font-medium text-text-primary">{totalContent}</span> content topic{totalContent !== 1 ? "s" : ""}
-          </span>
-        </div>
+        {showHoverBreadcrumb && hoverBreadcrumb?.length ? (
+          <div className="flex flex-1 flex-wrap items-center gap-1.5">
+            {hoverBreadcrumb.map((label, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                {i > 0 && (
+                  <ChevronRight className="size-3 shrink-0 text-text-faint/60" />
+                )}
+                <span className="font-sans text-[11px] text-text-secondary">
+                  {label}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5">
+              <Folder className="size-3 text-amber-400/60" />
+              <span className="font-sans text-[11px] text-text-secondary">
+                <span className="font-medium text-text-primary">{totalGroups}</span> group{totalGroups !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="h-3 w-px bg-[#222]" />
+            <div className="flex items-center gap-1.5">
+              <BookOpen className="size-3 text-accent-blue/60" />
+              <span className="font-sans text-[11px] text-text-secondary">
+                <span className="font-medium text-text-primary">{totalContent}</span> content topic{totalContent !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Tree */}
       <div className="flex flex-col">
         {roots.map((node, i) => (
-          <TreeNode key={node.id || i} node={node} numbering={`${i + 1}`} depth={0} />
+          <TreeNode
+            key={node.id || i}
+            node={node}
+            numbering={`${i + 1}`}
+            depth={0}
+            progressMap={progressMap}
+            ancestors={[]}
+            onHoverBreadcrumb={showHoverBreadcrumb ? setHoverBreadcrumb : undefined}
+          />
         ))}
       </div>
     </div>
@@ -297,7 +351,7 @@ function JsonView({ outline }) {
   );
 }
 
-export default function OutlineView({ outline }) {
+export default function OutlineView({ outline, progressMap = {}, showHoverBreadcrumb = false }) {
   const [viewMode, setViewMode] = useState("formatted");
 
   return (
@@ -335,7 +389,11 @@ export default function OutlineView({ outline }) {
       </div>
 
       {viewMode === "formatted" ? (
-        <FormattedView outline={outline} />
+        <FormattedView
+          outline={outline}
+          progressMap={progressMap}
+          showHoverBreadcrumb={showHoverBreadcrumb}
+        />
       ) : (
         <JsonView outline={outline} />
       )}

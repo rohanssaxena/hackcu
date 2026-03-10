@@ -53,6 +53,7 @@ export async function getMessages(conversationId) {
  * @param {string} conversationId
  * @param {string} content
  * @param {(event: object) => void} onEvent - called with each SSE event
+ * @param {{ mode?: "ask" | "agent" }} options - mode: "ask" = no tools, "agent" = can use tools
  * @returns {Promise<void>}
  *
  * Event types:
@@ -63,13 +64,14 @@ export async function getMessages(conversationId) {
  *   { type: "done" }
  *   { type: "error", error }
  */
-export async function sendMessage(conversationId, content, onEvent) {
+export async function sendMessage(conversationId, content, onEvent, options = {}) {
+  const { mode = "ask" } = options;
   const res = await fetch(
     `${SERVER_URL}/api/chat/conversations/${conversationId}/messages`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, mode }),
     },
   );
 

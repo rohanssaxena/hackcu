@@ -50,11 +50,6 @@ const TOOL_LABELS = {
   list_content_nodes: "Listing content",
   navigate_to_content_node: "Opening content",
   navigate_to_phase: "Opening phase",
-  list_practice_exams: "Listing practice exams",
-  get_progress: "Fetching progress",
-  navigate_to_practice_exam: "Opening practice exam",
-  generate_practice_exam: "Generating practice exam",
-  navigate_to_progress: "Opening Progress page",
 };
 
 function RelativeTime({ date }) {
@@ -95,7 +90,7 @@ function ConversationItem({ conv, active, onSelect, onDelete, onUpdate }) {
   return (
     <div
       className={`group relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors ${
-        active ? "bg-[#232323]" : "hover:bg-[#1a1a1e]"
+        active ? "bg-bg-active-tab" : "hover:bg-bg-hover"
       }`}
       onClick={() => !editing && onSelect(conv.id)}
     >
@@ -132,12 +127,12 @@ function ConversationItem({ conv, active, onSelect, onDelete, onUpdate }) {
             e.stopPropagation();
             setMenuOpen((v) => !v);
           }}
-          className="rounded p-0.5 text-text-faint opacity-0 transition-all hover:bg-[#2a2a2e] hover:text-text-secondary group-hover:opacity-100"
+          className="rounded p-0.5 text-text-faint opacity-0 transition-all hover:bg-bg-hover hover:text-text-secondary group-hover:opacity-100"
         >
           <MoreHorizontal className="size-3.5" />
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-md border border-[#232323] bg-[#1a1a1a] py-1 shadow-xl">
+          <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-md border border-border-default bg-bg-elevated py-1 shadow-xl">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -145,7 +140,7 @@ function ConversationItem({ conv, active, onSelect, onDelete, onUpdate }) {
                 setEditTitle(conv.title || "");
                 setMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] text-text-secondary transition-colors hover:bg-[#232323] hover:text-text-primary"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
             >
               <Pencil className="size-3" /> Rename
             </button>
@@ -155,7 +150,7 @@ function ConversationItem({ conv, active, onSelect, onDelete, onUpdate }) {
                 onUpdate(conv.id, { pinned: !conv.pinned });
                 setMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] text-text-secondary transition-colors hover:bg-[#232323] hover:text-text-primary"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
             >
               {conv.pinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
               {conv.pinned ? "Unpin" : "Pin"}
@@ -166,7 +161,7 @@ function ConversationItem({ conv, active, onSelect, onDelete, onUpdate }) {
                 onDelete(conv.id);
                 setMenuOpen(false);
               }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] text-red-400 transition-colors hover:bg-[#232323]"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] text-red-400 transition-colors hover:bg-bg-hover"
             >
               <Trash2 className="size-3" /> Delete
             </button>
@@ -180,7 +175,7 @@ function ConversationItem({ conv, active, onSelect, onDelete, onUpdate }) {
 function ToolCallChip({ name, done, error }) {
   const label = TOOL_LABELS[name] || name;
   return (
-    <div className="my-1 flex items-center gap-1.5 rounded-md bg-[#1a1a1e] px-2 py-1">
+    <div className="my-1 flex items-center gap-1.5 rounded-md px-2 py-1">
       {done ? (
         error ? (
           <AlertCircle className="size-3 shrink-0 text-red-400" />
@@ -216,7 +211,7 @@ function MessageBubble({ message, isStreaming, streamParts }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[88%] rounded-xl bg-[#1a1a1e] px-3 py-2 text-text-primary">
+      <div className="max-w-[88%] px-3 py-2 text-text-primary">
         {isStreaming && parts.length > 0 ? (
           <div>
             {parts.map((part, i) => {
@@ -280,7 +275,7 @@ function ThreadSidebar({
   const unpinned = filtered.filter((c) => !c.pinned);
 
   return (
-    <div className="flex h-full w-full flex-col border-r border-[#1e1e1e] bg-[#111]">
+    <div className="flex h-full w-full flex-col border-r border-border-default bg-bg-sidebar">
       <div className="flex items-center justify-between px-3 py-2">
         <span className="font-sans text-[11px] font-semibold uppercase tracking-wider text-text-faint">
           Threads
@@ -288,14 +283,14 @@ function ThreadSidebar({
         <div className="flex items-center gap-1">
           <button
             onClick={onNew}
-            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-[#1e1e1e] hover:text-text-primary"
+            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
             title="New thread"
           >
             <Plus className="size-3.5" />
           </button>
           <button
             onClick={onClose}
-            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-[#1e1e1e] hover:text-text-primary"
+            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
           >
             <X className="size-3.5" />
           </button>
@@ -309,7 +304,7 @@ function ThreadSidebar({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search threads..."
-            className="w-full rounded-md border border-[#232323] bg-[#0d0d0d] px-2.5 py-1.5 font-sans text-[12px] text-text-primary outline-none placeholder:text-text-faint focus:border-text-secondary"
+            className="w-full rounded-md border border-border-default bg-bg-primary px-2.5 py-1.5 font-sans text-[12px] text-text-primary outline-none placeholder:text-text-faint focus:border-text-secondary"
           />
         </div>
       )}
@@ -378,10 +373,13 @@ export default function AIPanel({ onWidthChange }) {
   const [searchQuery, setSearchQuery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [atBottom, setAtBottom] = useState(true);
+  const [chatMode, setChatMode] = useState("ask");
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const textareaRef = useRef(null);
+  const modeMenuRef = useRef(null);
 
   const scrollToBottom = useCallback((force = false) => {
     if (force || atBottom) {
@@ -416,6 +414,15 @@ export default function AIPanel({ onWidthChange }) {
   useEffect(() => {
     scrollToBottom(true);
   }, [messages, streamParts]);
+
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const handler = (e) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target)) setModeMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [modeMenuOpen]);
 
   const refreshConversations = async () => {
     const convs = await listConversations();
@@ -541,7 +548,7 @@ export default function AIPanel({ onWidthChange }) {
           setStreaming(false);
           break;
       }
-    });
+    }, { mode: chatMode === "agent" ? "agent" : chatMode === "tutor" ? "tutor" : "ask" });
   };
 
   const handleKeyDown = (e) => {
@@ -570,7 +577,7 @@ export default function AIPanel({ onWidthChange }) {
       <aside className="flex h-full w-10 shrink-0 flex-col items-center border-l border-border-default bg-bg-sidebar pt-3">
         <button
           onClick={() => setCollapsed(false)}
-          className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
+          className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
           <PanelRightOpen className="size-3.5" />
         </button>
@@ -592,7 +599,7 @@ export default function AIPanel({ onWidthChange }) {
         <div className="flex items-center gap-1">
           <button
             onClick={handleNewConversation}
-            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-[#1e1e1e] hover:text-text-primary"
+            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
             title="New conversation"
           >
             <Plus className="size-3.5" />
@@ -602,7 +609,7 @@ export default function AIPanel({ onWidthChange }) {
               setSidebarOpen((v) => !v);
               if (sidebarOpen) setSearchQuery(null);
             }}
-            className={`cursor-pointer rounded p-1 transition-colors hover:bg-[#1e1e1e] hover:text-text-primary ${
+            className={`cursor-pointer rounded p-1 transition-colors hover:bg-bg-hover hover:text-text-primary ${
               sidebarOpen && searchQuery === null ? "text-text-primary" : "text-text-faint"
             }`}
             title="Conversations"
@@ -611,7 +618,7 @@ export default function AIPanel({ onWidthChange }) {
           </button>
           <button
             onClick={toggleSearch}
-            className={`cursor-pointer rounded p-1 transition-colors hover:bg-[#1e1e1e] hover:text-text-primary ${
+            className={`cursor-pointer rounded p-1 transition-colors hover:bg-bg-hover hover:text-text-primary ${
               searchQuery !== null ? "text-text-primary" : "text-text-faint"
             }`}
             title="Search conversations"
@@ -620,7 +627,7 @@ export default function AIPanel({ onWidthChange }) {
           </button>
           <button
             onClick={() => setCollapsed(true)}
-            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-[#1e1e1e] hover:text-text-primary"
+            className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
             title="Collapse panel"
           >
             <PanelRightClose className="size-3.5" />
@@ -692,7 +699,7 @@ export default function AIPanel({ onWidthChange }) {
         {!atBottom && messages.length > 3 && (
           <button
             onClick={() => scrollToBottom(true)}
-            className="absolute bottom-16 left-1/2 z-10 flex -translate-x-1/2 cursor-pointer items-center gap-1 rounded-full border border-[#232323] bg-[#1a1a1a] px-2.5 py-1 shadow-lg transition-colors hover:bg-[#232323]"
+            className="absolute bottom-16 left-1/2 z-10 flex -translate-x-1/2 cursor-pointer items-center gap-1 rounded-full border border-border-default bg-bg-elevated px-2.5 py-1 shadow-lg transition-colors hover:bg-bg-hover"
           >
             <ChevronDown className="size-3 text-text-secondary" />
             <span className="font-sans text-[10px] text-text-secondary">New messages</span>
@@ -712,28 +719,51 @@ export default function AIPanel({ onWidthChange }) {
               placeholder="Ask anything..."
               rows={4}
               disabled={streaming}
-              className="w-full resize-none bg-transparent font-sans text-[13px] leading-4 text-text-primary outline-none placeholder:text-[#666] disabled:opacity-50"
+              className="w-full resize-none bg-transparent font-sans text-[13px] leading-4 text-text-primary outline-none placeholder:text-text-faint disabled:opacity-50"
             />
           </div>
 
           <div className="flex h-[33.5px] items-center justify-between px-1.5">
-            <div className="relative">
+            <div className="relative" ref={modeMenuRef}>
               <button
-                className="flex cursor-pointer items-center gap-1.5 rounded-full bg-accent-pill px-1.5 py-0.5 transition-colors hover:bg-[#3a3a3a]"
+                onClick={() => setModeMenuOpen((v) => !v)}
+                className="flex cursor-pointer items-center gap-1.5 rounded-full bg-accent-pill px-1.5 py-0.5 transition-colors hover:bg-bg-hover"
               >
-                <Link2 className="size-3 text-[#a1a1a1]" />
-                <span className="font-sans text-[11px] leading-[16.5px] text-[#a1a1a1]">
-                  Ask
+                <Link2 className="size-3 text-text-secondary" />
+                <span className="font-sans text-[11px] leading-[16.5px] text-text-secondary">
+                  {chatMode === "agent" ? "Do" : chatMode === "tutor" ? "Tutor" : "Ask"}
                 </span>
-                <ChevronDown className="size-3 text-[#a1a1a1]" />
+                <ChevronDown className="size-3 text-text-secondary" />
               </button>
+              {modeMenuOpen && (
+                <div className="absolute bottom-full left-0 z-50 mb-1 rounded-md border border-border-default bg-bg-card py-1 shadow-lg">
+                  <button
+                    onClick={() => { setChatMode("ask"); setModeMenuOpen(false); }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] transition-colors hover:bg-bg-hover ${chatMode === "ask" ? "bg-bg-hover text-text-primary" : "text-text-secondary"}`}
+                  >
+                    Ask — chat only, no tools
+                  </button>
+                  <button
+                    onClick={() => { setChatMode("agent"); setModeMenuOpen(false); }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] transition-colors hover:bg-bg-hover ${chatMode === "agent" ? "bg-bg-hover text-text-primary" : "text-text-secondary"}`}
+                  >
+                    Do — can use tools
+                  </button>
+                  <button
+                    onClick={() => { setChatMode("tutor"); setModeMenuOpen(false); }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-sans text-[11px] transition-colors hover:bg-bg-hover ${chatMode === "tutor" ? "bg-bg-hover text-text-primary" : "text-text-secondary"}`}
+                  >
+                    Tutor — explain step by step
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
-              <button className="cursor-pointer transition-colors hover:text-white">
+              <button className="cursor-pointer transition-colors hover:text-text-primary">
                 <Globe className="size-3.5 text-text-secondary" />
               </button>
-              <button className="cursor-pointer transition-colors hover:text-white">
+              <button className="cursor-pointer transition-colors hover:text-text-primary">
                 <ImageIcon className="size-3.5 text-text-secondary" />
               </button>
               <button
@@ -741,14 +771,14 @@ export default function AIPanel({ onWidthChange }) {
                 disabled={streaming}
                 className={`flex size-5 cursor-pointer items-center justify-center rounded-full transition-colors ${
                   input.trim() && !streaming
-                    ? "bg-white hover:bg-gray-200"
-                    : "bg-[#555] hover:bg-[#666]"
+                    ? "bg-accent-blue hover:opacity-90"
+                    : "bg-bg-chip opacity-50"
                 }`}
               >
                 {streaming ? (
                   <Loader2 className="size-3 animate-spin text-black" />
                 ) : (
-                  <ArrowUp className={`size-3 ${input.trim() ? "text-black" : "text-[#888]"}`} />
+                  <ArrowUp className={`size-3 ${input.trim() ? "text-white" : "text-text-faint"}`} />
                 )}
               </button>
             </div>

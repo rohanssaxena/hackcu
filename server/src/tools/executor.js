@@ -1,8 +1,6 @@
 import { getSupabase } from "../utils/supabase.js";
 import { runOutlinePipeline } from "../services/outline-generation.js";
 import { runContentPipeline } from "../services/learning-content-generation.js";
-import { getProgressData } from "../services/progressService.js";
-import { generatePracticeExam } from "../services/practice-question-generation.js";
 
 const USER_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const BUCKET = "workspace-files";
@@ -257,97 +255,6 @@ const handlers = {
       success: true,
       message: `Opening phase ${idx}: ${node.title}`,
       navigate: { path, hash, label: `${node.title} (Phase ${idx})` },
-    };
-  },
-
-  async list_practice_exams({ folder_id }) {
-    const supabase = getSupabase();
-    let query = supabase
-      .from("practice_exams")
-      .select("id, folder_id, title, created_at")
-      .eq("user_id", USER_ID)
-      .order("created_at", { ascending: false });
-
-    if (folder_id) {
-      query = query.eq("folder_id", folder_id);
-    }
-
-    const { data: exams, error } = await query;
-    if (error) throw new Error(error.message);
-    const examList = exams || [];
-
-    if (examList.length === 0) return { exams: [] };
-
-    const folderIds = [...new Set(examList.map((e) => e.folder_id))];
-    const { data: folders } = await supabase
-      .from("folders")
-      .select("id, name")
-      .in("id", folderIds);
-    const folderMap = new Map((folders || []).map((f) => [f.id, f]));
-
-    const { data: attempts } = await supabase
-      .from("practice_exam_attempts")
-      .select("exam_id")
-      .in("exam_id", examList.map((e) => e.id))
-      .eq("user_id", USER_ID);
-
-    const attemptCounts = {};
-    for (const a of attempts || []) {
-      attemptCounts[a.exam_id] = (attemptCounts[a.exam_id] || 0) + 1;
-    }
-
-    const items = examList.map((e) => ({
-      id: e.id,
-      title: e.title,
-      folder_id: e.folder_id,
-      folder_name: folderMap.get(e.folder_id)?.name || "Unknown",
-      attempt_count: attemptCounts[e.id] || 0,
-    }));
-    return { exams: items };
-  },
-
-  async get_progress() {
-    return await getProgressData();
-  },
-
-  async navigate_to_practice_exam({ exam_id }) {
-    const supabase = getSupabase();
-    const { data: exam, error } = await supabase
-      .from("practice_exams")
-      .select("id, title, folder_id")
-      .eq("id", exam_id)
-      .eq("user_id", USER_ID)
-      .single();
-
-    if (error || !exam) throw new Error("Practice exam not found");
-
-    const path = `/course/${exam.folder_id}/practice/${exam.id}`;
-    return {
-      success: true,
-      message: `Opening: ${exam.title}`,
-      navigate: { path, label: exam.title },
-    };
-  },
-
-  async generate_practice_exam({ folder_id }) {
-    const result = await generatePracticeExam(folder_id);
-    return {
-      success: true,
-      exam_id: result.exam_id,
-      question_count: result.question_count,
-      message: `Generated practice exam with ${result.question_count} questions.`,
-      navigate: {
-        path: `/course/${folder_id}/practice/${result.exam_id}`,
-        label: "Practice Exam",
-      },
-    };
-  },
-
-  async navigate_to_progress() {
-    return {
-      success: true,
-      message: "Opening Progress page",
-      navigate: { path: "/progress", label: "Progress" },
     };
   },
 };

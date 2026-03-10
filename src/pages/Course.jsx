@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   Folder,
@@ -12,7 +12,8 @@ import {
   Layers,
   ArrowRight,
   ArrowLeft,
-  Map as MapIcon,
+  ArrowUpRight,
+  Map,
   ListOrdered,
   MoreHorizontal,
   Download,
@@ -22,17 +23,39 @@ import {
   Trash2,
   ArrowUpDown,
   Filter,
+  RotateCw,
+  Plus,
+  Zap,
+  ClipboardList,
+  MessageCircle,
+  MessageSquare,
+  X,
+  MoreVertical,
 } from "lucide-react";
 import { supabase, USER_ID } from "../lib/supabase";
-import { renameFolder } from "../lib/workspace";
 import FileViewer from "../components/FileViewer";
 import OutlineModal from "../components/OutlineModal";
+import AddExamModal from "../components/AddExamModal";
+import DrillGenerationModal from "../components/DrillGenerationModal";
 import OutlineView from "../components/OutlineView";
-import PracticeExamModal from "../components/PracticeExamModal";
-import { getOutline } from "../lib/outlineService";
+import { getOutline, getEstimatedTimeForContentNode, requestDrillGeneration } from "../lib/outlineService";
+import { getProgressForFolder } from "../lib/checkpointProgressService";
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "";
-const TABS = ["Overview", "Files", "Outline", "About"];
+const TABS = ["Overview", "Files", "About"];
+
+/** Collect all objective IDs from outline tree (content nodes only). */
+function collectObjectiveIds(nodes) {
+  if (!nodes || !Array.isArray(nodes)) return [];
+  let ids = [];
+  for (const node of nodes) {
+    if (node.type === "content" && node.objectives?.length) {
+      for (const o of node.objectives) if (o.id) ids.push(o.id);
+    }
+    const children = node.children ?? node.nodes ?? [];
+    if (children.length) ids.push(...collectObjectiveIds(children));
+  }
+  return ids;
+}
 
 export default function Course() {
   const { folderId } = useParams();
@@ -52,25 +75,17 @@ export default function Course() {
   const [outlineGenerated, setOutlineGenerated] = useState(false);
   const [lcGenerated, setLcGenerated] = useState(false);
   const [showOutlineModal, setShowOutlineModal] = useState(false);
+  const [showAddExamModal, setShowAddExamModal] = useState(false);
+  const [showFolderPopup, setShowFolderPopup] = useState(false);
+  const [showInfoPopup, setShowInfoPopup] = useState(false);
+  const [editExam, setEditExam] = useState(null);
+  const [howImDoing, setHowImDoing] = useState(null);
   const [modalInitialStage, setModalInitialStage] = useState(0);
   const [outlineData, setOutlineData] = useState(null);
-  const [showRenameDropdown, setShowRenameDropdown] = useState(false);
-  const [showRenameInput, setShowRenameInput] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
-  const [showPracticeModal, setShowPracticeModal] = useState(false);
-  const [practiceExams, setPracticeExams] = useState([]);
-  const [practiceAttempts, setPracticeAttempts] = useState(new Map());
-  const renameDropdownRef = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (renameDropdownRef.current && !renameDropdownRef.current.contains(e.target)) {
-        setShowRenameDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const [progressMap, setProgressMap] = useState({});
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillError, setDrillError] = useState(null);
+  const [showDrillModal, setShowDrillModal] = useState(false);
 
   useEffect(() => {
     if (!folderId) {
@@ -98,9 +113,10 @@ export default function Course() {
         getOutline(folderId).then((data) => {
           if (data) setOutlineData(data);
         });
+        getProgressForFolder(folderId).then(setProgressMap);
       }
 
-      const [filesRes, examRes, practiceApiRes] = await Promise.all([
+      const [filesRes, examRes, coursesRes] = await Promise.all([
         supabase
           .from("course_files")
           .select("*")
@@ -113,20 +129,35 @@ export default function Course() {
           .gte("exam_date", new Date().toISOString())
           .order("exam_date")
           .limit(1),
-        fetch(`${SERVER_URL}/api/practice/list`)
-          .then((r) => (r.ok ? r.json() : { exams: [], attempts: [] }))
-          .catch(() => ({ exams: [], attempts: [] })),
+        supabase.from("courses").select("id").eq("folder_id", folderId),
       ]);
 
       if (examRes.data?.[0]) setExam(examRes.data[0]);
-      const practiceData = practiceApiRes.exams || [];
-      setPracticeExams(practiceData);
 
-      const latestByExam = new Map();
-      for (const a of practiceApiRes.attempts || []) {
-        if (!latestByExam.has(a.exam_id)) latestByExam.set(a.exam_id, a);
+      const { data: sets } = await supabase
+        .from("study_sets")
+        .select("id, title, type, card_count, mastered_count")
+        .eq("folder_id", folderId)
+        .eq("user_id", USER_ID);
+      const setList = sets || [];
+      const setIds = setList.map((s) => s.id);
+      let pinnedIds = new Set();
+      if (setIds.length > 0) {
+        const { data: pinnedFavs } = await supabase
+          .from("favorites")
+          .select("target_id")
+          .eq("user_id", USER_ID)
+          .eq("target_type", "study_set")
+          .in("target_id", setIds);
+        pinnedIds = new Set((pinnedFavs || []).map((f) => f.target_id));
       }
-      setPracticeAttempts(latestByExam);
+      const withPinned = setList.map((s) => ({
+        ...s,
+        cards: s.card_count || 0,
+        mastered: s.mastered_count || 0,
+        pinned: pinnedIds.has(s.id),
+      }));
+      setStudySets(withPinned);
 
       if (filesRes.data?.length) {
         const fileTree = filesRes.data.map((f) => ({
@@ -144,6 +175,63 @@ export default function Course() {
     load();
   }, [folderId]);
 
+  async function refetchStudySets() {
+    if (!folderId) return;
+    const { data: sets } = await supabase
+      .from("study_sets")
+      .select("id, title, type, card_count, mastered_count")
+      .eq("folder_id", folderId)
+      .eq("user_id", USER_ID);
+    const setList = sets || [];
+    const setIds = setList.map((s) => s.id);
+    let pinnedIds = new Set();
+    if (setIds.length > 0) {
+      const { data: pinnedFavs } = await supabase
+        .from("favorites")
+        .select("target_id")
+        .eq("user_id", USER_ID)
+        .eq("target_type", "study_set")
+        .in("target_id", setIds);
+      pinnedIds = new Set((pinnedFavs || []).map((f) => f.target_id));
+    }
+    const withPinned = setList.map((s) => ({
+      ...s,
+      cards: s.card_count || 0,
+      mastered: s.mastered_count || 0,
+      pinned: pinnedIds.has(s.id),
+    }));
+    setStudySets(withPinned);
+  }
+
+  function handleOpenDrillModal() {
+    setDrillError(null);
+    setShowDrillModal(true);
+  }
+
+  function handleDrillComplete() {
+    refetchStudySets();
+  }
+
+  function handleStartDrill(setId) {
+    navigate(`/course/${folderId}/drill/${setId}`);
+  }
+
+  async function handleRenameSet(setId, newTitle) {
+    if (!newTitle?.trim()) return;
+    const { error } = await supabase
+      .from("study_sets")
+      .update({ title: newTitle.trim() })
+      .eq("id", setId);
+    if (!error) await refetchStudySets();
+  }
+
+  async function handleDeleteSet(setId) {
+    if (!confirm("Delete this set? This cannot be undone.")) return;
+    const { error } = await supabase.from("study_sets").delete().eq("id", setId);
+    if (!error) await refetchStudySets();
+  }
+
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -156,16 +244,16 @@ export default function Course() {
 
   if (!folder) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8">
-        <p className="font-sans text-[14px] text-text-secondary">
-          Course not found or you don&apos;t have access to it.
-        </p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8">
+        <span className="font-sans text-[13px] text-text-secondary">
+          Course not found or you don’t have access.
+        </span>
         <button
-          onClick={() => navigate("/workspace")}
-          className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-4 py-1.5 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110"
+          type="button"
+          onClick={() => navigate(-1)}
+          className="rounded bg-[#2a2a2a] px-3 py-1.5 font-sans text-[12px] text-text-primary hover:bg-[#333]"
         >
-          <ArrowLeft className="size-3.5" />
-          Back to workspace
+          Go back
         </button>
       </div>
     );
@@ -188,9 +276,14 @@ export default function Course() {
       <h1 className="mb-1 font-sans text-4xl font-semibold text-text-primary">
         {title}
       </h1>
-      <p className="mb-5 font-sans text-[13px] text-text-secondary">
-        {pathLabel}
-      </p>
+      <div className="mb-6 flex items-center gap-1 font-sans text-[12px] text-text-secondary">
+        {["My Workspace", ...(filePath || [])].map((seg, i) => (
+          <span key={i} className="flex items-center gap-1">
+            {i > 0 && <ChevronRight className="size-3 text-text-faint" />}
+            <span>{seg}</span>
+          </span>
+        ))}
+      </div>
 
       {/* Sub-nav — text + underline */}
       <div className="mb-6 flex items-center border-b border-border-default">
@@ -230,7 +323,7 @@ export default function Course() {
             {outlineGenerated ? "Outline Generated" : "Generate Outline"}
           </button>
           {outlineGenerated && (
-            <div className="flex items-center gap-1">
+            <>
               <button
                 onClick={() => {
                   if (!lcGenerated) {
@@ -247,108 +340,24 @@ export default function Course() {
               >
                 {lcGenerated ? "Content Generated" : "Generate Learning Content"}
               </button>
-              {lcGenerated && (
-                <div ref={renameDropdownRef} className="relative">
-                  <button
-                    onClick={() => setShowRenameDropdown((v) => !v)}
-                    className="flex cursor-pointer items-center justify-center rounded p-1 text-text-faint transition-colors hover:bg-[#2a2a2a] hover:text-text-primary"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                  {showRenameDropdown && (
-                    <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] rounded-md border border-border-default bg-[#1e1e1e] py-1 shadow-lg">
-                      <button
-                        onClick={() => {
-                          setShowRenameDropdown(false);
-                          setShowRenameInput(true);
-                          setRenameValue(folder?.name || "");
-                        }}
-                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 font-sans text-[12px] text-text-primary transition-colors hover:bg-[#2a2a2a]"
-                      >
-                        <Pencil className="size-3" />
-                        Rename folder
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+              <button
+                onClick={() => setShowInfoPopup(true)}
+                className="rounded p-1 text-text-faint transition-colors hover:bg-[#232323] hover:text-text-primary"
+                title="Folder info"
+              >
+                <Info className="size-3.5" />
+              </button>
+              <button
+                onClick={() => setShowFolderPopup(true)}
+                className="rounded p-1 text-text-faint transition-colors hover:bg-[#232323] hover:text-text-primary"
+                title="Files"
+              >
+                <Folder className="size-3.5" />
+              </button>
+            </>
           )}
         </div>
       </div>
-
-      {showRenameInput && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="flex flex-col gap-3 rounded-lg border border-border-default bg-bg-sidebar p-4 shadow-xl">
-            <span className="font-sans text-[13px] font-medium text-text-primary">
-              Rename folder
-            </span>
-            <input
-              autoFocus
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const trimmed = renameValue.trim();
-                  if (trimmed && folderId) {
-                    renameFolder(folderId, trimmed).then((r) => {
-                      if (!r.error) {
-                        setFolder((f) => (f ? { ...f, name: trimmed } : null));
-                        setShowRenameInput(false);
-                      }
-                    });
-                  }
-                }
-                if (e.key === "Escape") setShowRenameInput(false);
-              }}
-              className="rounded border border-border-default bg-[#111] px-3 py-2 font-sans text-[13px] text-text-primary outline-none focus:border-accent-blue"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowRenameInput(false)}
-                className="cursor-pointer rounded px-3 py-1 font-sans text-[12px] text-text-secondary hover:text-text-primary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const trimmed = renameValue.trim();
-                  if (trimmed && folderId) {
-                    renameFolder(folderId, trimmed).then((r) => {
-                      if (!r.error) {
-                        setFolder((f) => (f ? { ...f, name: trimmed } : null));
-                        setShowRenameInput(false);
-                      }
-                    });
-                  }
-                }}
-                className="cursor-pointer rounded bg-accent-blue px-3 py-1 font-sans text-[12px] font-medium text-white hover:brightness-110"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPracticeModal && folderId && (
-        <PracticeExamModal
-          folderId={folderId}
-          onClose={() => setShowPracticeModal(false)}
-          onCreated={async () => {
-            const res = await fetch(`${SERVER_URL}/api/practice/list`);
-            if (res.ok) {
-              const { exams, attempts } = await res.json();
-              setPracticeExams(exams || []);
-              const latestByExam = new Map();
-              for (const a of attempts || []) {
-                if (!latestByExam.has(a.exam_id)) latestByExam.set(a.exam_id, a);
-              }
-              setPracticeAttempts(latestByExam);
-            }
-          }}
-        />
-      )}
 
       {showOutlineModal && folderId && (
         <OutlineModal
@@ -370,39 +379,178 @@ export default function Course() {
         />
       )}
 
+      {showFolderPopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowFolderPopup(false)}
+        >
+          <div
+            className="flex max-h-[80vh] w-[480px] flex-col rounded-lg border border-border-default bg-bg-primary shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border-default px-4 py-3">
+              <span className="font-sans text-[14px] font-medium text-text-primary">
+                Files in {folder?.name}
+              </span>
+              <button
+                onClick={() => setShowFolderPopup(false)}
+                className="rounded p-1 text-text-faint hover:text-text-primary"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {files.length === 0 ? (
+                <p className="font-sans text-[12px] text-text-faint">
+                  No files in this folder
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {files.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 font-sans text-[12px] text-text-primary"
+                    >
+                      <File className="size-3.5 text-text-faint" />
+                      {f.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInfoPopup && folder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowInfoPopup(false)}
+        >
+          <div
+            className="w-[360px] rounded-lg border border-border-default bg-bg-primary p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border-default pb-3">
+              <span className="font-sans text-[14px] font-medium text-text-primary">
+                Folder info
+              </span>
+              <button
+                onClick={() => setShowInfoPopup(false)}
+                className="rounded p-1 text-text-faint hover:text-text-primary"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 font-sans text-[12px]">
+              <span className="text-text-secondary">
+                <strong className="text-text-primary">Name:</strong> {folder.name}
+              </span>
+              <span className="text-text-secondary">
+                <strong className="text-text-primary">Outline:</strong>{" "}
+                {outlineGenerated ? "Generated" : "Not generated"}
+              </span>
+              <span className="text-text-secondary">
+                <strong className="text-text-primary">Learning content:</strong>{" "}
+                {lcGenerated ? "Generated" : "Not generated"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddExamModal && folderId && (
+        <AddExamModal
+          folderId={folderId}
+          folderName={folder?.name || ""}
+          outline={outlineData}
+          editExam={editExam}
+          onClose={() => {
+            setShowAddExamModal(false);
+            setEditExam(null);
+          }}
+          onSaved={async () => {
+            const { data } = await supabase
+              .from("exams")
+              .select("*")
+              .eq("folder_id", folderId)
+              .gte("exam_date", new Date().toISOString())
+              .order("exam_date")
+              .limit(1);
+            if (data?.[0]) setExam(data[0]);
+          }}
+        />
+      )}
+
+      {showDrillModal && folderId && (
+        <DrillGenerationModal
+          folderId={folderId}
+          userId={USER_ID}
+          outline={outlineData}
+          onClose={() => setShowDrillModal(false)}
+          onComplete={handleDrillComplete}
+          onStartDrill={(setId) => {
+            setShowDrillModal(false);
+            navigate(`/course/${folderId}/drill/${setId}`);
+          }}
+        />
+      )}
+
       {/* Tab content + side cards */}
       <div className="flex flex-1 gap-10 pb-8">
-        <div className="min-w-0 flex-1">
-          {activeTab === "Overview" && (
-            <OverviewTab folder={folder} folderId={folderId} outline={outlineData} navigate={navigate} />
-          )}
-          {activeTab === "Files" && <FilesTab files={files} />}
-          {activeTab === "Outline" && (
-            outlineData ? (
-              <OutlineView outline={outlineData} />
-            ) : (
-              <p className="py-12 text-center font-sans text-[13px] text-text-faint">
-                No outline generated yet. Click "Generate Outline" above to create one.
-              </p>
-            )
-          )}
-          {activeTab === "About" && <AboutTab folder={folder} />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {activeTab === "Overview" ? (
+            <OverviewTab
+              topics={topics}
+              mastery={mastery}
+              folder={folder}
+              outline={outlineData}
+              progressMap={progressMap}
+              onOpenDrillModal={handleOpenDrillModal}
+              drillError={drillError}
+            />
+          ) : activeTab === "Files" ? (
+            <FilesTab files={files} />
+          ) : activeTab === "About" ? (
+            <AboutTab folder={folder} />
+          ) : null}
         </div>
 
         <div className="flex w-[260px] shrink-0 flex-col gap-4">
           <SidePanelCards
             exam={exam}
             studySets={studySets}
-            activities={activities}
-            topics={topics}
+            progressMap={progressMap}
             mastery={mastery}
-            folder={folder}
-            folderId={folderId}
-            onFolderUpdate={setFolder}
-            practiceExams={practiceExams}
-            practiceAttempts={practiceAttempts}
-            lcGenerated={lcGenerated}
-            onOpenPracticeModal={() => setShowPracticeModal(true)}
+            howImDoing={howImDoing}
+            onAddExam={() => {
+              setEditExam(null);
+              setShowAddExamModal(true);
+            }}
+            onEditExam={(e) => {
+              setEditExam(e);
+              setShowAddExamModal(true);
+            }}
+            onDeleteExam={async (e) => {
+              if (!confirm("Delete this exam?")) return;
+              await supabase.from("exams").delete().eq("id", e.id);
+              setExam(null);
+            }}
+            onReloadHowImDoing={() => {
+              const placeholders = [
+                "You're making steady progress. Keep reviewing key concepts and practicing with flashcards to stay on track for your upcoming exam.",
+                "Your study habits are paying off. Focus on weak areas and maintain consistency for best results.",
+                "Good momentum! Consider spacing out your reviews to improve long-term retention.",
+              ];
+              setHowImDoing(
+                placeholders[Math.floor(Math.random() * placeholders.length)]
+              );
+            }}
+            onOpenDrillModal={handleOpenDrillModal}
+            onSelectSet={handleStartDrill}
+            onRenameSet={handleRenameSet}
+            onDeleteSet={handleDeleteSet}
+            drillError={drillError}
           />
         </div>
       </div>
@@ -438,48 +586,50 @@ function mapFileType(dbType) {
 
 /* ---- Side Panel Cards ---- */
 
+const SET_TYPE_ICONS = {
+  drill: Zap,
+  flashcards: Layers,
+  cheat_sheet: FileText,
+  practice_exam: ClipboardList,
+  socratic: MessageCircle,
+  debate: MessageSquare,
+};
+
 function SidePanelCards({
   exam,
   studySets,
-  activities,
-  topics,
-  mastery,
-  folder,
-  folderId,
-  onFolderUpdate,
-  practiceExams = [],
-  practiceAttempts = new Map(),
-  lcGenerated = false,
-  onOpenPracticeModal,
+  progressMap = {},
+  mastery = {},
+  onAddExam,
+  onEditExam,
+  onDeleteExam,
+  onReloadHowImDoing,
+  howImDoing,
+  onOpenDrillModal,
+  onSelectSet,
+  onRenameSet,
+  onDeleteSet,
+  drillError = null,
 }) {
-  const navigate = useNavigate();
-  const [editingExamDate, setEditingExamDate] = useState(false);
-  const [examDateValue, setExamDateValue] = useState("");
-
-  const handleSaveExamDate = async () => {
-    if (!folderId || !onFolderUpdate) return;
-    const date = examDateValue ? new Date(examDateValue).toISOString() : null;
-    const { error } = await supabase
-      .from("folders")
-      .update({ exam_date: date })
-      .eq("id", folderId)
-      .eq("user_id", USER_ID);
-    if (!error) {
-      onFolderUpdate((f) => (f ? { ...f, exam_date: date } : null));
-      setEditingExamDate(false);
-    }
-  };
-
-  const readiness = exam?.scope_topic_ids?.length
+  const [openSetMenuId, setOpenSetMenuId] = useState(null);
+  const contentIds = exam?.content || [];
+  const topicIds = exam?.scope_topic_ids || [];
+  const useContent = contentIds.length > 0;
+  const useTopics = !useContent && topicIds.length > 0;
+  const readiness = useContent
     ? Math.round(
-        (exam.scope_topic_ids.reduce(
-          (s, tid) => s + (mastery[tid]?.p_know || 0),
-          0,
-        ) /
-          exam.scope_topic_ids.length) *
-          100,
+        contentIds.reduce((s, id) => {
+          const p = progressMap[id];
+          return s + (p?.percent ?? 0);
+        }, 0) / contentIds.length,
       )
-    : 0;
+    : useTopics
+      ? Math.round(
+          (topicIds.reduce((s, tid) => s + (mastery[tid]?.p_know || 0), 0) /
+            topicIds.length) *
+            100,
+        )
+      : 0;
 
   const daysAway = exam
     ? Math.ceil(
@@ -487,252 +637,213 @@ function SidePanelCards({
       )
     : null;
 
+  const defaultHowImDoing =
+    "You're making steady progress. Keep reviewing key concepts and practicing with flashcards to stay on track for your upcoming exam.";
+  const text = howImDoing ?? defaultHowImDoing;
+
   return (
-    <>
-      {lcGenerated && folderId && onOpenPracticeModal && (
-        <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
-          <div className="flex items-center gap-2 border-b border-border-default pb-2">
-            <ListOrdered className="size-3.5 text-text-muted" />
-            <span className="font-sans text-[11px] font-medium text-text-muted">
-              Practice
-            </span>
-          </div>
-          <button
-            onClick={onOpenPracticeModal}
-            className="flex cursor-pointer items-center justify-center gap-1.5 rounded bg-accent-blue px-3 py-2 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110"
-          >
-            Generate practice exam
-          </button>
-        </div>
-      )}
-
-      {folderId && (
-        <div className="flex flex-col gap-3 rounded border border-[#393939] px-4 py-3">
-          <div className="flex items-center gap-2 border-b border-border-default pb-2">
-            <Layers className="size-3.5 text-text-muted" />
-            <span className="font-sans text-[11px] font-medium text-text-muted">
-              Practice Exams
-            </span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {practiceExams.length === 0 ? (
-              <p className="font-sans text-[12px] text-text-faint">
-                No practice exams yet
-              </p>
-            ) : (
-              practiceExams.map((pe) => {
-                const count = pe.settings?.question_count ?? "?";
-                const attempt = practiceAttempts.get(pe.id);
-                const pct = attempt && attempt.total > 0
-                  ? Math.round((attempt.score / attempt.total) * 100)
-                  : 0;
-                const status = attempt
-                  ? `Completed ${pct}%`
-                  : "Not started";
-                return (
-                  <button
-                    key={pe.id}
-                    onClick={() => navigate(`/course/${pe.folder_id}/practice/${pe.id}`)}
-                    className="group/set -mx-2 flex cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-[#2e2e30]"
-                  >
-                    <span className="font-sans text-[12px] font-medium text-text-primary">
-                      {pe.title}
-                    </span>
-                    <div className="flex items-center justify-between">
-                      <span className="font-sans text-[10px] text-text-secondary">
-                        {count} questions
-                      </span>
-                      <span className="font-sans text-[10px] text-accent-blue opacity-0 transition-opacity group-hover/set:opacity-100">
-                        {attempt ? "Retake" : "Start"}
-                      </span>
-                    </div>
-                    <div className="flex h-1 overflow-hidden rounded-full bg-bg-elevated">
-                      <div
-                        className="h-full rounded-full bg-accent-blue"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="font-sans text-[10px] text-text-faint">
-                      {status}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {folder && folderId && (
-        <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
-          <div className="flex items-center gap-2 border-b border-border-default pb-2">
-            <Calendar className="size-3.5 text-text-muted" />
-            <span className="font-sans text-[11px] font-medium text-text-muted">
-              Exam Date
-            </span>
-          </div>
-          <div className="flex flex-col gap-2 pt-1">
-            {editingExamDate ? (
-              <>
-                <input
-                  type="datetime-local"
-                  value={examDateValue || ""}
-                  onChange={(e) => setExamDateValue(e.target.value)}
-                  className="rounded border border-border-default bg-[#111] px-2 py-1 font-sans text-[12px] text-text-primary outline-none focus:border-accent-blue"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setEditingExamDate(false)}
-                    className="cursor-pointer font-sans text-[11px] text-text-secondary hover:text-text-primary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveExamDate}
-                    className="cursor-pointer font-sans text-[11px] font-medium text-accent-blue hover:underline"
-                  >
-                    Save
-                  </button>
-                </div>
-              </>
-            ) : (
-              <button
-                onClick={() => {
-                  const d = folder.exam_date ? new Date(folder.exam_date) : null;
-                  setExamDateValue(d ? new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
-                  setEditingExamDate(true);
-                }}
-                className="text-left font-sans text-[13px] text-text-primary transition-colors hover:text-accent-blue"
-              >
-                {folder.exam_date
-                  ? new Date(folder.exam_date).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                  : "Add exam date"}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {exam && (
-        <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
-          <div className="flex items-center gap-2 border-b border-border-default pb-2">
+    <div className="flex flex-col gap-4">
+      {/* Upcoming Exam card */}
+      <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border-default pb-2">
+          <div className="flex items-center gap-2">
             <Calendar className="size-3.5 text-text-muted" />
             <span className="font-sans text-[11px] font-medium text-text-muted">
               Upcoming Exam
             </span>
           </div>
-          <div className="flex flex-col gap-2 pt-1">
-            <span className="font-sans text-[13px] font-medium text-text-primary">
-              {exam.title}
-            </span>
-            <div className="flex items-center gap-1.5">
-              <Clock className="size-3 text-red-400" />
-              <span className="font-sans text-[11px] text-red-400">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onAddExam?.()}
+              className="rounded p-1 text-text-faint transition-colors hover:bg-[#2e2e30] hover:text-text-primary"
+              title="Add exam"
+            >
+              <Plus className="size-3.5" />
+            </button>
+            {exam && (
+              <>
+                <button
+                  onClick={() => onEditExam?.(exam)}
+                  className="rounded p-1 text-text-faint transition-colors hover:bg-[#2e2e30] hover:text-text-primary"
+                  title="Edit exam"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  onClick={() => onDeleteExam?.(exam)}
+                  className="rounded p-1 text-text-faint transition-colors hover:bg-red-500/20 hover:text-red-400"
+                  title="Delete exam"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {exam ? (
+          <div className="group/card -mx-2 cursor-pointer rounded-md px-2 py-2 transition-colors hover:bg-[#2e2e30]">
+            <div className="relative">
+              <div className="absolute right-0 top-0 flex justify-center rounded p-0.5 opacity-0 transition-opacity group-hover/card:opacity-100">
+                <ArrowUpRight className="size-4 text-text-secondary transition-colors group-hover/card:text-text-primary" />
+              </div>
+              <p className="font-sans text-[13px] font-medium leading-[18px] text-text-primary">
+                {exam.title}
+              </p>
+              <p className="mt-0.5 font-sans text-[11px] leading-[16px] text-text-secondary">
+                {daysAway !== null &&
+                  `${daysAway} day${daysAway !== 1 ? "s" : ""} until`}{" "}
                 {new Date(exam.exam_date).toLocaleDateString("en-US", {
                   month: "short",
                   day: "numeric",
                   year: "numeric",
-                })}{" "}
-                — {daysAway} days away
-              </span>
-            </div>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="font-sans text-[10px] text-text-secondary">
-                  Readiness
-                </span>
-                <span className="font-mono text-[10px] text-accent-green">
-                  {readiness}%
-                </span>
-              </div>
-              <div className="flex h-1.5 overflow-hidden rounded-full bg-bg-elevated">
-                <div
-                  className="h-full rounded-full bg-accent-green"
-                  style={{ width: `${readiness}%` }}
-                />
-              </div>
-            </div>
-            {exam.notes && (
-              <span className="font-sans text-[11px] text-text-faint">
-                {exam.notes}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {studySets.length > 0 && (
-        <div className="flex flex-col gap-3 rounded border border-[#393939] px-4 py-3">
-          <div className="flex items-center gap-2 border-b border-border-default pb-2">
-            <Layers className="size-3.5 text-text-muted" />
-            <span className="font-sans text-[11px] font-medium text-text-muted">
-              Study Sets
-            </span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {studySets.map((set) => {
-              const pct =
-                set.cards > 0
-                  ? Math.round((set.mastered / set.cards) * 100)
-                  : 0;
-              return (
-                <button
-                  key={set.id}
-                  className="group/set -mx-2 flex cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 transition-colors hover:bg-[#2e2e30]"
-                >
-                  <span className="font-sans text-[12px] font-medium text-text-primary">
-                    {set.name}
+                })}
+              </p>
+              <div className="mt-2 flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-sans text-[10px] text-text-secondary">
+                    Content progress
                   </span>
-                  <div className="flex items-center justify-between">
-                    <span className="font-sans text-[10px] text-text-secondary">
-                      {set.mastered}/{set.cards} mastered
-                    </span>
-                    <span className="font-mono text-[10px] text-text-faint">
-                      {pct}%
-                    </span>
-                  </div>
-                  <div className="flex h-1 overflow-hidden rounded-full bg-bg-elevated">
-                    <div
-                      className="h-full rounded-full bg-accent-blue"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {activities.length > 0 && (
-        <div className="flex flex-col gap-3 rounded border border-[#393939] px-4 py-3">
-          <div className="border-b border-border-default pb-2">
-            <span className="font-sans text-[11px] font-medium text-text-muted">
-              Recent Activity
-            </span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {activities.map((a) => (
-              <div key={a.id} className="flex items-start gap-2">
-                <div className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent-blue" />
-                <div className="flex flex-col">
-                  <span className="font-sans text-[12px] leading-tight text-text-primary">
-                    {a.metadata?.label || a.action_type}
-                  </span>
-                  <span className="font-sans text-[10px] text-text-faint">
-                    {formatRelative(a.created_at)}
+                  <span className="font-mono text-[10px] text-accent-green">
+                    {readiness}%
                   </span>
                 </div>
+                <div className="h-1 overflow-hidden rounded-full bg-bg-elevated">
+                  <div
+                    className="h-full rounded-full bg-accent-green"
+                    style={{ width: `${readiness}%` }}
+                  />
+                </div>
               </div>
-            ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-2 py-6">
+            <Calendar className="size-8 text-text-faint/50" />
+            <p className="text-center font-sans text-[12px] text-text-secondary">
+              No exam scheduled. Take a breather!
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* How I'm Doing card */}
+      <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border-default pb-2">
+          <span className="font-sans text-[11px] font-medium text-text-muted">
+            How I&apos;m Doing
+          </span>
+          <button
+            onClick={() => onReloadHowImDoing?.()}
+            className="rounded p-1 text-text-faint transition-colors hover:bg-[#2e2e30] hover:text-text-primary"
+            title="Reload"
+          >
+            <RotateCw className="size-3.5" />
+          </button>
+        </div>
+        <div className="group/card -mx-2 cursor-pointer rounded-md px-2 py-2 transition-colors hover:bg-[#2e2e30]">
+          <div className="relative">
+            <div className="absolute right-0 top-0 flex justify-center rounded p-0.5 opacity-0 transition-opacity group-hover/card:opacity-100">
+              <ArrowUpRight className="size-4 text-text-secondary transition-colors group-hover/card:text-text-primary" />
+            </div>
+            <p className="font-sans text-[12px] leading-[18px] text-text-secondary">
+              {text}
+            </p>
           </div>
         </div>
-      )}
-    </>
+      </div>
+
+      {/* Sets card */}
+      <div className="flex flex-col gap-2 rounded border border-[#393939] px-4 py-3">
+        <div className="flex items-center gap-2 border-b border-border-default pb-2">
+          <Layers className="size-3.5 text-text-muted" />
+          <span className="font-sans text-[11px] font-medium text-text-muted">
+            Sets
+          </span>
+        </div>
+        {studySets.length > 0 ? (
+          studySets.map((set) => {
+            const Icon = SET_TYPE_ICONS[set.type] || Layers;
+            const totalCards = set.cards ?? set.card_count ?? 0;
+            const completed = set.mastered ?? set.mastered_count ?? 0;
+            const completionPct = totalCards > 0 ? Math.round((completed / totalCards) * 100) : 0;
+            const menuOpen = openSetMenuId === set.id;
+            return (
+              <div
+                key={set.id}
+                className="group/set relative flex w-full items-center gap-2 rounded-md px-2 py-2 transition-colors hover:bg-[#2e2e30]"
+              >
+                <button
+                  type="button"
+                  onClick={() => set.type === "drill" && onSelectSet?.(set.id)}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                >
+                  <Icon className="size-3.5 shrink-0 text-text-faint" />
+                  <span className="truncate font-sans text-[12px] font-medium text-text-primary">
+                    {set.title}
+                  </span>
+                  <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
+                    {completionPct}%
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenSetMenuId(menuOpen ? null : set.id);
+                  }}
+                  className="shrink-0 rounded p-1 opacity-0 transition-opacity group-hover/set:opacity-100 hover:bg-[#3a3a3a] hover:opacity-100"
+                  title="Set options"
+                  aria-label="Set options"
+                >
+                  <MoreVertical className="size-3.5 text-text-faint" />
+                </button>
+                {menuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      aria-hidden
+                      onClick={() => setOpenSetMenuId(null)}
+                    />
+                    <div className="absolute right-0 top-full z-20 mt-0.5 min-w-[120px] rounded-md border border-border-default bg-bg-elevated py-1 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newTitle = window.prompt("Rename set", set.title);
+                          if (newTitle != null) onRenameSet?.(set.id, newTitle);
+                          setOpenSetMenuId(null);
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 font-sans text-[12px] text-text-primary hover:bg-bg-hover"
+                      >
+                        <Pencil className="size-3" />
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onDeleteSet?.(set.id);
+                          setOpenSetMenuId(null);
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 font-sans text-[12px] text-red-400 hover:bg-red-500/10"
+                      >
+                        <Trash2 className="size-3" />
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-2 py-6">
+            <Layers className="size-8 text-text-faint/50" />
+            <p className="text-center font-sans text-[12px] text-text-secondary">
+              No sets yet. Create one above!
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -748,16 +859,255 @@ function flattenOutlineNodes(nodes) {
   return out;
 }
 
-function OverviewTab({ folder, folderId, outline, navigate }) {
+function flattenOutlineNodesWithNumbering(nodes, prefix = "") {
+  const out = [];
+  const kids = nodes || [];
+  kids.forEach((n, i) => {
+    const num = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
+    const item = {
+      id: n.id,
+      label: n.title || (n.type === "group" ? "Group" : "Section"),
+      type: n.type,
+      numbering: num,
+    };
+    out.push(item);
+    const children = n.children || n.nodes || [];
+    if (children.length) {
+      out.push(...flattenOutlineNodesWithNumbering(children, num));
+    }
+  });
+  return out;
+}
+
+const NODE_WIDTH = 140;
+const NODE_HEIGHT = 88;
+const COL_GAP = 24;
+const ROW_GAP = 12;
+
+function buildLayeredLayout(nodes) {
+  const columns = [];
+  const connectors = [];
+  const nextRow = {};
+
+  function walk(nodes, colIndex, numberingPrefix) {
+    if (!nodes?.length) return;
+    nodes.forEach((n, i) => {
+      const num = numberingPrefix ? `${numberingPrefix}.${i + 1}` : `${i + 1}`;
+      const children = n.children || n.nodes || [];
+
+      let row;
+      if (children.length > 0) {
+        walk(children, colIndex + 1, num);
+        const childStartRow = nextRow[colIndex + 1] - children.length;
+        row = childStartRow + (children.length - 1) / 2;
+      } else {
+        row = nextRow[colIndex] ?? 0;
+        nextRow[colIndex] = row + 1;
+      }
+
+      if (!columns[colIndex]) columns[colIndex] = [];
+      columns[colIndex].push({
+        id: n.id || `n-${colIndex}-${row}`,
+        label: n.title || (n.type === "group" ? "Group" : "Section"),
+        type: n.type,
+        numbering: num,
+        col: colIndex,
+        row,
+      });
+
+      if (children.length > 0) {
+        const childStartRow = nextRow[colIndex + 1] - children.length;
+        children.forEach((_, ci) => {
+          connectors.push({
+            from: { col: colIndex, row },
+            to: { col: colIndex + 1, row: childStartRow + ci },
+          });
+        });
+        nextRow[colIndex] = Math.max(nextRow[colIndex] ?? 0, nextRow[colIndex + 1]);
+      }
+    });
+  }
+
+  walk(nodes, 0, "");
+
+  return { columns: columns.filter(Boolean), connectors };
+}
+
+function LayeredNode({ item, pos, progress, pct, folder, navigate }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      className="group absolute cursor-pointer rounded-lg border border-border-default bg-bg-elevated p-2 transition-colors hover:border-accent-blue hover:bg-bg-hover"
+      style={{
+        left: pos.x,
+        top: pos.y,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={() => item.type === "content" && item.id && folder && navigate(`/course/${folder.id}/learn/${item.id}`)}
+    >
+      {hovered && (
+        <div className="absolute right-1.5 top-1.5 rounded p-0.5 text-text-secondary">
+          <ArrowUpRight className="size-3.5" />
+        </div>
+      )}
+      <div className="flex flex-col gap-0.5">
+        <span className="font-mono text-[10px] font-medium text-text-faint">{item.numbering}</span>
+        <div className="line-clamp-2 min-h-[2.4em] font-sans text-[11px] font-medium leading-tight text-text-primary" title={item.label}>
+          {item.label}
+        </div>
+        {progress && progress.total > 0 && (
+          <div className="mt-1.5">
+            <div className="h-1 w-full overflow-hidden rounded-full bg-bg-chip">
+              <div className="h-full rounded-full bg-accent-blue transition-all" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LayeredMindmapView({ folder, outlineNodes, progressMap, navigate }) {
+  const { columns, connectors } = useMemo(
+    () => buildLayeredLayout(outlineNodes || []),
+    [outlineNodes]
+  );
+
+  const totalCols = columns.length;
+  const maxRows = Math.max(...columns.map((c) => c.length), 1);
+
+  const getNodePos = (col, row) => ({
+    x: 20 + col * (NODE_WIDTH + COL_GAP),
+    y: 20 + row * (NODE_HEIGHT + ROW_GAP),
+  });
+
+  const connectorPath = (from, to) => {
+    const f = getNodePos(from.col, from.row);
+    const t = getNodePos(to.col, to.row);
+    const x1 = f.x + NODE_WIDTH;
+    const y1 = f.y + NODE_HEIGHT / 2;
+    const x2 = t.x;
+    const y2 = t.y + NODE_HEIGHT / 2;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const k = 0.5;
+    const cpx1 = x1 + dx * k;
+    const cpy1 = y1;
+    const cpx2 = x2;
+    const cpy2 = y2 - dy * k;
+    return `M ${x1} ${y1} C ${cpx1} ${cpy1} ${cpx2} ${cpy2} ${x2} ${y2}`;
+  };
+
+  const width = totalCols * (NODE_WIDTH + COL_GAP) + 40;
+  const height = maxRows * (NODE_HEIGHT + ROW_GAP) + 40;
+
+  return (
+    <div className="h-[380px] overflow-auto p-4">
+      <div className="relative" style={{ width, height, minWidth: width, minHeight: height }}>
+        <svg className="absolute inset-0" width={width} height={height}>
+          <g stroke="var(--color-border-default)" strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round">
+            {connectors.map((c, i) => (
+              <path key={i} d={connectorPath(c.from, c.to)} />
+            ))}
+          </g>
+        </svg>
+        {columns.map((col, colIndex) =>
+          col.map((item) => {
+            const pos = getNodePos(item.col, item.row);
+            const progress = item.type === "content" && progressMap[item.id] ? progressMap[item.id] : null;
+            const pct = progress?.percent ?? 0;
+            return (
+              <LayeredNode
+                key={`${item.id}-${item.col}-${item.row}`}
+                item={item}
+                pos={pos}
+                progress={progress}
+                pct={pct}
+                folder={folder}
+                navigate={navigate}
+              />
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+const NODE_PADDING_X = 12;
+const ROW_HEIGHT = 44;
+const LEVEL_GAP = 24;
+const CHAR_WIDTH = 6.2;
+
+function measureLabelWidth(label) {
+  return Math.max(48, (label || "").length * CHAR_WIDTH + NODE_PADDING_X * 2);
+}
+
+function computeSubtreeWidth(nodes) {
+  if (!nodes?.length) return 0;
+  return nodes.reduce((sum, n) => {
+    const label = n.title || (n.type === "group" ? "Group" : "Section");
+    const children = n.children || n.nodes || [];
+    const selfW = measureLabelWidth(label);
+    const childW = computeSubtreeWidth(children);
+    const slot = Math.max(selfW, childW || selfW);
+    return sum + slot + (sum > 0 ? LEVEL_GAP : 0);
+  }, 0);
+}
+
+function buildMindmapNodes(folder, outlineNodes, parentId = "root", level = 1, startX = 0) {
+  const nodes = [];
+  const roots = outlineNodes || [];
+  if (roots.length === 0) return nodes;
+
+  const y = 40 + level * ROW_HEIGHT;
+  let accX = startX;
+
+  roots.forEach((n, i) => {
+    const id = n.id || `n-${level}-${i}`;
+    const label = n.title || (n.type === "group" ? "Group" : "Section");
+    const children = n.children || n.nodes || [];
+    const selfW = measureLabelWidth(label);
+    const childW = computeSubtreeWidth(children);
+    const slotW = Math.max(selfW, childW);
+    const x = accX + slotW / 2;
+
+    nodes.push({ id, label, x, y, level, parent: parentId });
+    if (children.length > 0) {
+      const childTotal = computeSubtreeWidth(children);
+      const childStart = accX + (slotW - childTotal) / 2;
+      nodes.push(...buildMindmapNodes(folder, children, id, level + 1, childStart));
+    }
+    accX += slotW + LEVEL_GAP;
+  });
+  return nodes;
+}
+
+function OverviewTab({
+  topics,
+  mastery,
+  folder,
+  outline,
+  progressMap = {},
+  onOpenDrillModal,
+  drillError = null,
+}) {
+  const navigate = useNavigate();
   const [mapView, setMapView] = useState("map");
+  const mapContainerRef = useRef(null);
+  const [mapScale, setMapScale] = useState(1);
+  const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
 
   const outlineNodes = outline?.nodes || [];
-  const flatNodes = flattenOutlineNodes(outlineNodes);
-  const contentNodes = flatNodes.filter((n) => n.type === "content");
-  const nextUp = contentNodes[0];
 
   const mindmapNodes = [];
-  const rootX = 400;
+  const totalChildWidth = outlineNodes?.length ? computeSubtreeWidth(outlineNodes) : 0;
+  const rootX = totalChildWidth / 2 + 40;
   const rootY = 40;
 
   if (folder) {
@@ -770,70 +1120,222 @@ function OverviewTab({ folder, folderId, outline, navigate }) {
     });
   }
 
-  const spacing = 800 / Math.max(outlineNodes.length, 1);
-  outlineNodes.forEach((n, i) => {
-    const x = 60 + i * spacing;
-    mindmapNodes.push({
-      id: n.id || `n-${i}`,
-      label: n.title || "Section",
-      x,
-      y: 130,
-      level: 1,
-      parent: "root",
-    });
-  });
+  const childNodes = buildMindmapNodes(folder, outlineNodes, "root", 1, 20);
+  mindmapNodes.push(...childNodes);
 
-  const linearOrder = contentNodes.map((n) => ({ id: n.id, label: n.label, status: "upcoming" }));
+  const mapWidth = Math.max(800, totalChildWidth + 120);
+  const mapHeight = 380;
+
+  const flatWithNumbering = flattenOutlineNodesWithNumbering(outlineNodes);
+  const linearOrder = flatWithNumbering
+    .filter((n) => n.type === "content")
+    .map((n) => ({ id: n.id, label: n.label, numbering: n.numbering, status: "upcoming" }));
+
+  const nextUp = linearOrder.find((n) => {
+    const p = progressMap[n.id];
+    if (!p?.total) return true;
+    return Math.round((p.completed / p.total) * 100) < 100;
+  }) ?? linearOrder[0];
+  const [nextUpEstimatedTime, setNextUpEstimatedTime] = useState(0);
+  useEffect(() => {
+    if (nextUp?.id) {
+      getEstimatedTimeForContentNode(nextUp.id).then(setNextUpEstimatedTime);
+    } else {
+      setNextUpEstimatedTime(0);
+    }
+  }, [nextUp?.id]);
+
+  const handleMapWheel = useCallback(
+    (e) => {
+      if (mapView !== "map") return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setMapScale((s) => Math.min(3, Math.max(0.3, s + delta)));
+    },
+    [mapView]
+  );
+
+  useEffect(() => {
+    const el = mapContainerRef.current;
+    if (!el || mapView !== "map") return;
+    el.addEventListener("wheel", handleMapWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleMapWheel);
+  }, [mapView, handleMapWheel]);
+
+  const handleMapMouseDown = (e) => {
+    if (mapView !== "map" || e.button !== 0) return;
+    setIsPanning(true);
+    panStartRef.current = { x: e.clientX - mapOffset.x, y: e.clientY - mapOffset.y };
+  };
+
+  const handleMapMouseMove = (e) => {
+    if (!isPanning) return;
+    setMapOffset({ x: e.clientX - panStartRef.current.x, y: e.clientY - panStartRef.current.y });
+  };
+
+  const handleMapMouseUp = () => setIsPanning(false);
+
+  useEffect(() => {
+    if (!isPanning) return;
+    const onMove = (e) => handleMapMouseMove(e);
+    const onUp = () => handleMapMouseUp();
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isPanning]);
+
+  const VERTICAL_TRUNK = 24;
+  const roundedConnectorPath = (x1, y1, x2, y2) => {
+    const branchY = y1 + VERTICAL_TRUNK;
+    const midX = (x1 + x2) / 2;
+    return `M ${x1} ${y1} L ${x1} ${branchY} L ${midX} ${branchY} L ${midX} ${y2} L ${x2} ${y2}`;
+  };
+
+  const nextUpProgress = nextUp?.id ? progressMap[nextUp.id] : null;
+  const nextUpPct = nextUpProgress?.total
+    ? Math.round((nextUpProgress.completed / nextUpProgress.total) * 100)
+    : 0;
 
   return (
     <div className="flex flex-col gap-8">
-      {nextUp && folderId && (
-        <div className="flex items-center gap-4 py-2">
-          <div className="flex size-9 items-center justify-center rounded bg-accent-blue/15">
-            <Play className="size-4 text-accent-blue" />
-          </div>
-          <div className="flex flex-1 flex-col">
-            <span className="font-sans text-[11px] font-medium uppercase tracking-wide text-text-faint">
-              Next Up
+      <div className="grid grid-cols-2 gap-4">
+        {/* Learn */}
+        <button
+          onClick={() => nextUp && folder && navigate(`/course/${folder.id}/learn/${nextUp.id}`)}
+          disabled={!nextUp || !folder}
+          className="flex flex-col gap-3 rounded-lg bg-[#212121] px-4 py-3 text-left transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
+            Learn
+          </span>
+          {nextUp ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="rounded-md bg-[#3a3a3a] px-2 py-0.5 font-mono text-[10px] text-white">
+                  {nextUp.numbering}
+                </span>
+                <span className="truncate font-sans text-[13px] font-medium text-text-primary">
+                  {nextUp.label}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 font-sans text-[11px] text-text-secondary">
+                <span className="underline">{nextUpPct}% complete</span>
+                <span className="text-text-faint">•</span>
+                <span className="underline">
+                  {nextUpEstimatedTime > 0 ? `${nextUpEstimatedTime} min` : "—"}
+                </span>
+              </div>
+              <div className="h-1 overflow-hidden rounded-full bg-[#333]">
+                <div
+                  className="h-full rounded-full bg-accent-green"
+                  style={{ width: `${nextUpPct}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <span className="font-sans text-[12px] text-text-faint">
+              No content yet
             </span>
-            <span className="font-sans text-[14px] font-medium text-text-primary">
-              {nextUp.label}
-            </span>
-          </div>
-          <button
-            onClick={() => navigate(`/course/${folderId}/learn/${nextUp.id}`)}
-            className="flex cursor-pointer items-center gap-1.5 rounded bg-accent-blue px-4 py-1.5 font-sans text-[12px] font-medium text-white transition-colors hover:brightness-110"
-          >
-            Start
-            <ArrowRight className="size-3.5" />
-          </button>
-        </div>
-      )}
+          )}
+        </button>
 
-      <div className="h-px bg-border-default" />
+        {/* Dynamic Practice */}
+        <button className="flex flex-col items-start gap-2 rounded-lg bg-[#212121] px-4 py-3 text-left transition-colors hover:bg-[#2a2a2a]">
+          <Zap className="size-5 text-accent-blue" />
+          <span className="font-sans text-[13px] font-medium text-text-primary">
+            Dynamic Practice
+          </span>
+          <span className="font-sans text-[11px] text-text-secondary">
+            Adaptive practice based on your progress
+          </span>
+        </button>
+
+        {/* Create new set */}
+        <div className="flex flex-col gap-3 rounded-lg bg-[#212121] px-4 py-3">
+          <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
+            Create new set
+          </span>
+          {drillError && (
+            <p className="font-sans text-[11px] text-red-400">{drillError}</p>
+          )}
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { id: "flashcards", label: "Flashcards", icon: Layers },
+              { id: "drill", label: "Drill", icon: Zap },
+              { id: "socratic", label: "Socratic", icon: MessageCircle },
+              { id: "debate", label: "Debate", icon: MessageSquare },
+            ].map((opt, i) => {
+              const Icon = opt.icon;
+              const colors = [
+                "bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30",
+                "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30",
+                "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30",
+                "bg-purple-500/20 text-purple-400 hover:bg-purple-500/30",
+              ];
+              const isDrill = opt.id === "drill";
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={isDrill ? onOpenDrillModal : undefined}
+                  className={`flex flex-col cursor-pointer items-center justify-center gap-2 rounded-md px-2 py-3 font-sans text-[11px] transition-colors ${colors[i % colors.length]}`}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="text-center leading-tight">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Mock Exam */}
+        <button className="flex flex-col items-start gap-2 rounded-lg bg-[#212121] px-4 py-3 text-left transition-colors hover:bg-[#2a2a2a]">
+          <ClipboardList className="size-5 text-accent-blue" />
+          <span className="font-sans text-[13px] font-medium text-text-primary">
+            Mock Exam
+          </span>
+          <span className="font-sans text-[11px] text-text-secondary">
+            Practice with exam-style questions
+          </span>
+        </button>
+      </div>
 
       <div className="flex flex-col gap-3">
-        <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
-          Knowledge Map
-        </span>
-        <div className="relative overflow-hidden rounded-lg border border-border-subtle bg-bg-primary">
-          <div className="absolute right-3 top-3 z-20 flex overflow-hidden rounded border border-border-subtle bg-bg-sidebar">
+        <div className="flex items-center justify-between">
+          <span className="font-sans text-[11px] font-bold uppercase tracking-wide text-text-faint">
+            Knowledge Map
+          </span>
+          <div className="flex overflow-hidden rounded border border-border-subtle bg-bg-sidebar">
             <button
               onClick={() => setMapView("map")}
               className={`flex cursor-pointer items-center gap-1 px-2 py-1 font-sans text-[10px] transition-colors ${
                 mapView === "map"
-                  ? "bg-[#393939] text-text-primary"
+                  ? "bg-bg-hover text-text-primary"
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              <MapIcon className="size-3" />
+              <Map className="size-3" />
               Map
             </button>
             <button
+              onClick={() => setMapView("layered")}
+              className={`flex cursor-pointer items-center gap-1 border-l border-border-subtle px-2 py-1 font-sans text-[10px] transition-colors ${
+                mapView === "layered"
+                  ? "bg-bg-hover text-text-primary"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              <Layers className="size-3" />
+              Layered
+            </button>
+            <button
               onClick={() => setMapView("linear")}
-              className={`flex cursor-pointer items-center gap-1 px-2 py-1 font-sans text-[10px] transition-colors ${
+              className={`flex cursor-pointer items-center gap-1 border-l border-border-subtle px-2 py-1 font-sans text-[10px] transition-colors ${
                 mapView === "linear"
-                  ? "bg-[#393939] text-text-primary"
+                  ? "bg-bg-hover text-text-primary"
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
@@ -841,81 +1343,172 @@ function OverviewTab({ folder, folderId, outline, navigate }) {
               Linear
             </button>
           </div>
+        </div>
+        <div className="relative overflow-hidden rounded-lg border border-border-subtle bg-bg-primary">
 
           {mapView === "map" ? (
-            <div className="relative h-[380px]">
-              <svg className="absolute inset-0 size-full">
-                {mindmapNodes
-                  .filter((n) => n.parent)
-                  .map((n) => {
-                    const parent = mindmapNodes.find(
-                      (p) => p.id === n.parent,
-                    );
-                    if (!parent) return null;
-                    return (
-                      <line
-                        key={`${parent.id}-${n.id}`}
-                        x1={parent.x}
-                        y1={parent.y + 16}
-                        x2={n.x}
-                        y2={n.y}
-                        stroke="#3e3e3e"
-                        strokeWidth={1.5}
-                      />
-                    );
-                  })}
-              </svg>
-              {mindmapNodes.map((node) => (
-                <div
-                  key={node.id}
-                  className={`absolute -translate-x-1/2 cursor-pointer rounded-md border px-3 py-1.5 font-sans text-[11px] transition-colors hover:border-accent-blue ${
-                    node.level === 0
-                      ? "border-accent-blue bg-accent-blue/20 font-medium text-accent-blue"
-                      : node.level === 1
-                        ? "border-border-default bg-bg-elevated text-text-primary"
-                        : "border-border-subtle bg-bg-sidebar text-text-secondary"
-                  }`}
-                  style={{ left: node.x, top: node.y }}
-                >
-                  {node.label}
+            <div
+              ref={mapContainerRef}
+              className="relative h-[380px] overflow-hidden bg-bg-primary"
+              onMouseDown={handleMapMouseDown}
+              style={{ cursor: isPanning ? "grabbing" : "grab" }}
+            >
+              <div
+                className="absolute inset-0 origin-top-left"
+                style={{
+                  transform: `translate(${mapOffset.x}px, ${mapOffset.y}px) scale(${mapScale})`,
+                  backgroundImage: "radial-gradient(circle, var(--color-border-subtle) 1px, transparent 1px)",
+                  backgroundSize: "16px 16px",
+                }}
+              >
+                <div className="relative" style={{ width: mapWidth, height: mapHeight }}>
+                  <svg className="absolute inset-0 size-full" style={{ overflow: "visible" }}>
+                    {mindmapNodes
+                      .filter((n) => n.parent)
+                      .map((n) => {
+                        const parent = mindmapNodes.find((p) => p.id === n.parent);
+                        if (!parent) return null;
+                        const x1 = parent.x;
+                        const y1 = parent.y + 16;
+                        const x2 = n.x;
+                        const y2 = n.y;
+                        return (
+                          <path
+                            key={`${parent.id}-${n.id}`}
+                            d={roundedConnectorPath(x1, y1, x2, y2)}
+                            fill="none"
+                            stroke="var(--color-border-default)"
+                            strokeWidth={1.5}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        );
+                      })}
+                  </svg>
+                  {mindmapNodes.map((node) => (
+                    <div
+                      key={node.id}
+                      className={`absolute -translate-x-1/2 cursor-pointer rounded-md border px-3 py-1.5 font-sans text-[11px] transition-colors hover:border-accent-blue ${
+                        node.level === 0
+                          ? "border-accent-blue bg-accent-blue/20 font-medium text-accent-blue"
+                          : node.level === 1
+                            ? "border-border-default bg-bg-elevated text-text-primary"
+                            : "border-border-subtle bg-bg-sidebar text-text-secondary"
+                      }`}
+                      style={{ left: node.x, top: node.y }}
+                    >
+                      {node.label}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+            </div>
+          ) : mapView === "layered" ? (
+            <LayeredMindmapView
+              folder={folder}
+              outlineNodes={outlineNodes}
+              progressMap={progressMap}
+              navigate={navigate}
+            />
+          ) : outline ? (
+            <div className="p-4">
+              <OutlineView
+                outline={outline}
+                progressMap={progressMap}
+                showHoverBreadcrumb
+              />
             </div>
           ) : (
-            <div className="flex flex-col p-4">
-              {linearOrder.map((item, i) => (
-                <div key={item.id} className="flex items-center gap-3">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`size-3 rounded-full border-2 ${
-                        item.status === "done"
-                          ? "border-accent-green bg-accent-green"
-                          : item.status === "current"
-                            ? "border-accent-blue bg-accent-blue"
-                            : "border-border-default bg-transparent"
-                      }`}
-                    />
-                    {i < linearOrder.length - 1 && (
-                      <div className="h-8 w-px bg-border-default" />
-                    )}
-                  </div>
-                  <span
-                    className={`font-sans text-[13px] ${
-                      item.status === "current"
-                        ? "font-medium text-accent-blue"
-                        : item.status === "done"
-                          ? "text-text-secondary line-through"
-                          : "text-text-faint"
-                    }`}
-                  >
-                    {item.label}
-                  </span>
-                </div>
-              ))}
+            <div className="flex flex-col items-center justify-center gap-2 p-8">
+              <p className="font-sans text-[13px] text-text-faint">No outline generated yet.</p>
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---- Content Tab ---- */
+
+function RecursiveContentNode({ node, numbering, depth = 0 }) {
+  const [open, setOpen] = useState(depth < 1);
+  const isGroup = node.type === "group";
+  const hasChildren = isGroup && node.children?.length > 0;
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-[#2a2a2e]"
+      >
+        {hasChildren || node.type === "content" ? (
+          open ? <ChevronDown className="size-3.5 shrink-0 text-text-faint" /> : <ChevronRight className="size-3.5 shrink-0 text-text-faint" />
+        ) : (
+          <span className="inline-block size-3.5 shrink-0" />
+        )}
+        <span className="font-mono text-[10px] text-text-faint">{numbering}</span>
+        <span
+          className={`flex-1 font-sans text-[13px] ${
+            depth === 0
+              ? "font-semibold text-text-primary"
+              : depth === 1
+                ? "font-medium text-text-primary"
+                : "text-text-secondary"
+          }`}
+        >
+          {node.title}
+        </span>
+        {node.type === "content" && node.objectives?.length > 0 && (
+          <span className="shrink-0 rounded bg-[#232323] px-1.5 py-0.5 font-mono text-[9px] text-text-faint">
+            {node.objectives.length} objective{node.objectives.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className={depth === 0 ? "ml-5" : "ml-6 border-l border-[#232323] pl-1"}>
+          {node.type === "content" && node.objectives?.length > 0 && (
+            <ul className="flex flex-col gap-0.5 px-3 py-1.5">
+              {node.objectives.map((o, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <span className="mt-[5px] size-1 shrink-0 rounded-full bg-accent-blue" />
+                  <span className="font-sans text-[11px] leading-[16px] text-text-secondary">
+                    {o.objective || o}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {hasChildren &&
+            node.children.map((child, i) => (
+              <RecursiveContentNode
+                key={child.id || i}
+                node={child}
+                numbering={`${numbering}.${i + 1}`}
+                depth={depth + 1}
+              />
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContentTab({ outline }) {
+  const roots = outline?.nodes || [];
+  if (!roots.length) {
+    return (
+      <p className="py-12 text-center font-sans text-[13px] text-text-faint">
+        No outline generated yet. Generate one to see the course content structure.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {roots.map((node, i) => (
+        <RecursiveContentNode key={node.id || i} node={node} numbering={`${i + 1}`} depth={0} />
+      ))}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { getAnthropic } from "./anthropic.js";
+import { safeJsonParse } from "./safeJsonParse.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = resolve(__dirname, "../../../prompts");
@@ -69,5 +70,5 @@ export async function callLLM({
     .map((block) => block.text)
     .join("");
 
-  return JSON.parse(text);
+  return safeJsonParse(text);
 }

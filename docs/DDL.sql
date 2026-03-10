@@ -315,9 +315,10 @@ CREATE INDEX idx_fsrs_due ON fsrs_state(user_id, due_at);
 
 CREATE TABLE study_sets (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  course_id       UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  folder_id       UUID REFERENCES folders(id) ON DELETE CASCADE,
+  course_id       UUID REFERENCES courses(id) ON DELETE SET NULL,
   user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  type            TEXT CHECK (type IN ('flashcards', 'cheat_sheet', 'practice_exam'))
+  type            TEXT CHECK (type IN ('flashcards', 'cheat_sheet', 'practice_exam', 'drill', 'socratic', 'debate'))
                   NOT NULL,
   title           TEXT NOT NULL,
   content         JSONB NOT NULL,
@@ -328,6 +329,7 @@ CREATE TABLE study_sets (
   last_studied_at TIMESTAMPTZ
 );
 
+CREATE INDEX idx_study_sets_folder ON study_sets(folder_id);
 CREATE INDEX idx_study_sets_course ON study_sets(course_id);
 CREATE INDEX idx_study_sets_user ON study_sets(user_id);
 

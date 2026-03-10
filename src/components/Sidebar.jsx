@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase, USER_ID } from "../lib/supabase";
 import { useTabs } from "../contexts/TabContext";
+import { useTheme } from "../contexts/ThemeContext";
 
 const NAV_ITEMS = [
   { label: "Dashboard", Icon: LayoutDashboard, path: "/", color: "text-blue-400" },
@@ -41,7 +42,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(true);
   const [quickActionsOpen, setQuickActionsOpen] = useState(true);
-  const [theme, setTheme] = useState("dark");
+  const { theme, setTheme } = useTheme();
 
   const [profile, setProfile] = useState({ full_name: "Rohan", email: "rohan@micro.study" });
   const [favorites, setFavorites] = useState([]);
@@ -51,14 +52,9 @@ export default function Sidebar({ onOpenGuidedMode }) {
 
   useEffect(() => {
     async function load() {
-      const [profileRes, prefsRes, favsRes, shortcutsRes, wsRes] =
+      const [profileRes, favsRes, shortcutsRes, wsRes] =
         await Promise.all([
           supabase.from("profiles").select("*").eq("id", USER_ID).single(),
-          supabase
-            .from("user_preferences")
-            .select("*")
-            .eq("user_id", USER_ID)
-            .single(),
           supabase
             .from("favorites")
             .select("*")
@@ -77,7 +73,6 @@ export default function Sidebar({ onOpenGuidedMode }) {
         ]);
 
       if (profileRes.data) setProfile(profileRes.data);
-      if (prefsRes.data) setTheme(prefsRes.data.theme || "dark");
       if (favsRes.data) setFavorites(favsRes.data);
       if (shortcutsRes.data) setShortcuts(shortcutsRes.data);
 
@@ -107,7 +102,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
       <aside className="flex h-full w-10 shrink-0 flex-col items-center border-r border-border-default bg-bg-sidebar pt-3">
         <button
           onClick={() => setCollapsed(false)}
-          className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
+          className="cursor-pointer rounded p-1 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
           <PanelLeftOpen className="size-3.5" />
         </button>
@@ -124,7 +119,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
         </span>
         <button
           onClick={() => setCollapsed(true)}
-          className="cursor-pointer rounded p-0.5 text-text-faint transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
+          className="cursor-pointer rounded p-0.5 text-text-faint transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
           <PanelLeftClose className="size-3.5" />
         </button>
@@ -159,8 +154,8 @@ export default function Sidebar({ onOpenGuidedMode }) {
               onClick={() => navigateInPlace(item.path)}
               className={`flex h-[23.5px] cursor-pointer items-center gap-1.5 pl-4 transition-colors ${
                 active
-                  ? "bg-[#232323] text-white"
-                  : "text-[#868686] hover:bg-[#2e2e2e] hover:text-text-primary"
+                  ? "bg-bg-active-tab text-text-primary"
+                  : "text-text-tab hover:bg-bg-hover hover:text-text-primary"
               }`}
             >
               <item.Icon className={`size-3.5 ${active ? item.color : item.color + "/60"}`} />
@@ -178,7 +173,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
       <div className="pt-1">
         <button
           onClick={() => setFavoritesOpen(!favoritesOpen)}
-          className="flex w-full cursor-pointer items-center gap-1 px-4 py-1 transition-colors hover:bg-[#2e2e2e]"
+          className="flex w-full cursor-pointer items-center gap-1 px-4 py-1 transition-colors hover:bg-bg-hover"
         >
           {favoritesOpen ? (
             <ChevronDown className="size-3 text-text-faint" />
@@ -194,7 +189,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
             {favorites.map((fav) => (
               <button
                 key={fav.id}
-                className="flex h-[23.5px] cursor-pointer items-center pl-4 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
+                className="flex h-[23.5px] cursor-pointer items-center pl-4 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
               >
                 <span className="font-sans text-[13px] leading-[19.5px]">
                   {fav.label}
@@ -211,7 +206,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
       <div className="pt-1">
         <button
           onClick={() => setQuickActionsOpen(!quickActionsOpen)}
-          className="flex w-full cursor-pointer items-center gap-1 px-4 py-1 transition-colors hover:bg-[#2e2e2e]"
+          className="flex w-full cursor-pointer items-center gap-1 px-4 py-1 transition-colors hover:bg-bg-hover"
         >
           {quickActionsOpen ? (
             <ChevronDown className="size-3 text-text-faint" />
@@ -227,7 +222,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
             {shortcuts.map((action) => (
               <button
                 key={action.id}
-                className="flex h-[23.5px] cursor-pointer items-center pl-4 text-text-secondary transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
+                className="flex h-[23.5px] cursor-pointer items-center pl-4 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
               >
                 <span className="font-sans text-[13px] leading-[19.5px]">
                   {action.label}
@@ -244,7 +239,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
       <div className="flex flex-col gap-2 px-3 pb-3">
         <button
           onClick={() => navigateInPlace("/admin")}
-          className="flex h-[23.5px] cursor-pointer items-center gap-1.5 rounded px-2 text-[#868686] transition-colors hover:bg-[#2e2e2e] hover:text-text-primary"
+          className="flex h-[23.5px] cursor-pointer items-center gap-1.5 rounded px-2 text-text-tab transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
           <Shield className="size-3.5 text-text-faint" />
           <span className="font-sans text-[13px] leading-[19.5px]">Admin Panel</span>
@@ -258,14 +253,14 @@ export default function Sidebar({ onOpenGuidedMode }) {
           <ArrowUpRight className="size-3" />
         </button>
 
-        <div className="flex h-8 items-center rounded-md bg-[#1e1e1e] p-0.5">
+        <div className="flex h-8 items-center rounded-md bg-bg-elevated p-0.5">
           {THEME_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               onClick={() => setTheme(opt.value)}
               className={`flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md py-1 font-sans text-[11px] transition-all ${
                 theme === opt.value
-                  ? "bg-[#393939] text-text-primary shadow-sm"
+                  ? "bg-bg-hover text-text-primary shadow-sm"
                   : "text-text-secondary hover:text-text-primary"
               }`}
             >
@@ -275,7 +270,7 @@ export default function Sidebar({ onOpenGuidedMode }) {
           ))}
         </div>
 
-        <button className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[#2e2e2e]">
+        <button className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-bg-hover">
           <div className="flex size-6 items-center justify-center rounded-full bg-accent-blue">
             <User className="size-3.5 text-white" />
           </div>

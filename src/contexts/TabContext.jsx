@@ -26,8 +26,14 @@ const PATH_LABELS = {
 
 function labelForPath(path) {
   if (PATH_LABELS[path]) return PATH_LABELS[path];
-  if (path.startsWith("/course/"))
-    return decodeURIComponent(path.split("/course/")[1]);
+  if (path.startsWith("/course/")) {
+    try {
+      const segment = path.split("/course/")[1];
+      return segment != null ? decodeURIComponent(segment) : "Course";
+    } catch {
+      return "Course";
+    }
+  }
   return "Untitled";
 }
 

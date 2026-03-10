@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "nodemon server/src/index.js",
+    "dev": "node server/src/index.js",
     "build": "vite build",
     "start": "NODE_ENV=production node server/src/index.js",
     "preview": "vite preview"
