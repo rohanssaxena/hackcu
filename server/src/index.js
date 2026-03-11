@@ -8,6 +8,8 @@ import { outlineRouter } from "./routes/outline.js";
 import { contentRouter } from "./routes/content.js";
 import { drillRouter } from "./routes/drill.js";
 import { chatRouter } from "./routes/chat.js";
+import objectivesRouter from "./routes/objectives.js";
+import objectivesTableRouter from "./routes/objectivesTable.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
@@ -29,6 +31,8 @@ app.use("/api/agents/outline", outlineRouter);
 app.use("/api/agents/content", contentRouter);
 app.use("/api/agents/drill", drillRouter);
 app.use("/api/chat", chatRouter);
+app.use("/api/objectives", objectivesRouter);
+app.use("/api/objectives-table", objectivesTableRouter);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

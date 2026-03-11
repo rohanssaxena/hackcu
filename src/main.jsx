@@ -11,6 +11,7 @@ import Learn from "./pages/Learn";
 import Drill from "./pages/Drill";
 import ComingSoon from "./pages/ComingSoon";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { ObjectivesAdmin } from "./components/ObjectivesAdmin";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
@@ -26,7 +27,7 @@ createRoot(document.getElementById("root")).render(
           <Route path="/progress" element={<ComingSoon />} />
           <Route path="/academics" element={<ComingSoon />} />
           <Route path="/review" element={<ComingSoon />} />
-          <Route path="/admin" element={<ComingSoon />} />
+          <Route path="/course/:folderId/admin" element={<ObjectivesAdmin />} />
         </Route>
       </Routes>
     </BrowserRouter>

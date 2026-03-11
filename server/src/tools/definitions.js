@@ -176,4 +176,34 @@ export const tools = [
       required: ["content_node_id", "phase_index"],
     },
   },
+  {
+    name: "list_study_sets",
+    description:
+      "List study sets (flashcards, drills, etc.) for a folder. Returns id, title, type, card_count, mastered_count for each set.",
+    input_schema: {
+      type: "object",
+      properties: {
+        folder_id: {
+          type: "string",
+          description: "ID of the folder whose sets to list",
+        },
+      },
+      required: ["folder_id"],
+    },
+  },
+  {
+    name: "navigate_to_drill_set",
+    description:
+      "Open the Drill page for a study set. Use list_study_sets to find drill set IDs.",
+    input_schema: {
+      type: "object",
+      properties: {
+        set_id: {
+          type: "string",
+          description: "ID of the study set (type 'drill') to open",
+        },
+      },
+      required: ["set_id"],
+    },
+  },
 ];

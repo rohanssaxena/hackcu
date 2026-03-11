@@ -5,17 +5,21 @@ import TabBar from "../components/TabBar";
 import AIPanel from "../components/AIPanel";
 import GuidedModeModal from "../components/GuidedModeModal";
 import { TabProvider } from "../contexts/TabContext";
+import { withGuideMode } from "../components/GuideMode";
 
-const MainContent = memo(function MainContent() {
+const MainContent = withGuideMode(memo(function MainContent({ guideMode }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <TabBar />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <Outlet />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative">
+        {/* Main content area - this will have the blue glow in guide mode */}
+        <div className="flex-1 relative">
+          <Outlet />
+        </div>
       </div>
     </div>
   );
-});
+}));
 
 export default function AppLayout() {
   const [guidedModeOpen, setGuidedModeOpen] = useState(false);

@@ -257,6 +257,52 @@ const handlers = {
       navigate: { path, hash, label: `${node.title} (Phase ${idx})` },
     };
   },
+
+  async list_study_sets({ folder_id }) {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from("study_sets")
+      .select("id, title, type, card_count, mastered_count")
+      .eq("folder_id", folder_id)
+      .eq("user_id", USER_ID)
+      .order("created_at", { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    const sets = (data || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      type: s.type,
+      card_count: s.card_count ?? 0,
+      mastered_count: s.mastered_count ?? 0,
+    }));
+
+    return { study_sets: sets };
+  },
+
+  async navigate_to_drill_set({ set_id }) {
+    const supabase = getSupabase();
+    const { data: set, error } = await supabase
+      .from("study_sets")
+      .select("id, title, type, folder_id, user_id")
+      .eq("id", set_id)
+      .single();
+
+    if (error || !set) throw new Error("Study set not found");
+    if (set.user_id !== USER_ID) throw new Error("You do not have access to this set");
+    if (set.type !== "drill")
+      throw new Error("navigate_to_drill_set can only be used with type 'drill' sets");
+
+    const folderId = set.folder_id;
+    if (!folderId) throw new Error("Drill set is not linked to a folder");
+
+    const path = `/course/${folderId}/drill/${set.id}`;
+    return {
+      success: true,
+      message: `Opening drill: ${set.title}`,
+      navigate: { path, label: set.title },
+    };
+  },
 };
 
 async function resolveFolderIdForContentNode(supabase, folderId) {

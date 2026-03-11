@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Zap } from "lucide-react";
-import { supabase } from "../lib/supabase";
-import DrillViewer from "../components/DrillViewer";
+import { supabase, USER_ID } from "../lib/supabase";
+import { DrillWithObjectiveProgress } from "../components/DrillWithObjectiveProgress";
 
 export default function Drill() {
   const { folderId, setId } = useParams();
   const navigate = useNavigate();
   const [progress, setProgress] = useState({ answered: 0, total: 0 });
   const [title, setTitle] = useState("Drill");
+  const userId = USER_ID;
 
   useEffect(() => {
     if (!setId) return;
@@ -67,11 +68,13 @@ export default function Drill() {
 
       {/* Content */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-4">
-        <DrillViewer
-          setId={setId}
-          onClose={handleBack}
-          onProgressChange={setProgress}
-          hideTitle
+        <DrillWithObjectiveProgress
+          drillId={setId}
+          userId={userId}
+          onComplete={(answers) => {
+            console.log('Drill completed!', answers);
+            handleBack();
+          }}
         />
       </div>
     </div>
